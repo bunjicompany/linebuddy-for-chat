@@ -10,6 +10,7 @@ env/
 
 # PyInstaller
 build/
+dist/
 *.spec.bak
 
 # Local app settings
