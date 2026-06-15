@@ -24,7 +24,7 @@ Excelのバージョンや更新状況によって、セル編集中の判定方
 
 ## 使い方
 
-1. [Releases](https://github.com/bunjicompany/linebuddy-for-excel/releases) から `ItsumonoKaigyoForExcel.exe` をダウンロードして起動します。
+1. [公式配布ページ](https://bunjicompany.com/downloads/ItsumonoKaigyoForExcel/) または [GitHub Releases](https://github.com/bunjicompany/linebuddy-for-excel/releases) から `ItsumonoKaigyoForExcel.exe` をダウンロードして起動します。
 2. 必要に応じて、セル内改行キーを `Enter` または `Shift + Enter` から選びます。
 3. Excelのセル内で文字入力中に、選択したキーを押します。
 4. 選択したキーが `Alt + Enter` として送信され、セル内改行されます。
@@ -63,6 +63,11 @@ python -m venv .venv
 - `ItsumonoKaigyoForExcel.spec`: PyInstaller設定
 - `app_icon.ico`: アプリアイコン
 - `requirements.txt`: 開発・ビルド用依存関係
+
+## リンク
+
+- [公式配布ページ](https://bunjicompany.com/downloads/ItsumonoKaigyoForExcel/)
+- [GitHub Releases](https://github.com/bunjicompany/linebuddy-for-excel/releases)
 
 ## ライセンス
 
