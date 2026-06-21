@@ -32,8 +32,8 @@ configure_tcl_tk_paths()
 
 
 APP_NAME = "いつもの改行 for Excel"
-APP_VERSION = "20260616-233310"
-APP_BUILD_DATETIME = "2026-06-16 23:33:10 +09:00"
+APP_VERSION = "20260621-153915"
+APP_BUILD_DATETIME = "2026-06-21 15:39:15 +09:00"
 CONFIG_PATH = (
     Path(sys.executable).resolve().parent
     if getattr(sys, "frozen", False)
@@ -103,6 +103,7 @@ GWLP_WNDPROC = -4
 STARTUP_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 STARTUP_VALUE_NAME = "ItsumonoKaigyoForExcel"
 START_MINIMIZED_ARG = "--start-minimized"
+DEVELOPER_WEBSITE_URL = "https://bunjicompany.com/"
 MUTEX_NAME = "Local\\ItsumonoKaigyoForExcel.SingleInstance"
 ERROR_ALREADY_EXISTS = 183
 MENU_STARTUP_ADD = 1001
@@ -113,6 +114,7 @@ MENU_SHOW_DIALOG = 1005
 MENU_PAUSE_TOGGLE = 1006
 MENU_LANGUAGE_JA = 1007
 MENU_LANGUAGE_EN = 1008
+MENU_DEVELOPER_WEBSITE = 1009
 CONTROL_RADIO_ENTER = 2001
 CONTROL_RADIO_SHIFT_ENTER = 2002
 CONTROL_BUTTON_MINIMIZE = 2003
@@ -174,10 +176,11 @@ TEXTS = {
         "menu_startup_remove": "Windows起動時の登録を解除する",
         "menu_language_ja": "日本語",
         "menu_language_en": "English",
+        "menu_developer_website": "開発元Webサイト",
         "menu_about": "バージョン情報",
         "menu_exit": "終了",
         "about_title": "{app_name} - バージョン情報",
-        "about_body": "{app_name}\n\nバージョン: {version}\nビルド日時: {build_datetime}",
+        "about_body": "{app_name}\nDeveloped by ぶんじカンパニー\n\nバージョン: {version}\nビルド日時: {build_datetime}",
         "error_hook_start": "キーボードフックの開始に失敗しました。",
         "error_send_break": "改行の送信に失敗しました。",
         "error_single_instance": "アプリの起動確認に失敗しました。",
@@ -203,10 +206,11 @@ TEXTS = {
         "menu_startup_remove": "Remove from Windows startup",
         "menu_language_ja": "日本語",
         "menu_language_en": "English",
+        "menu_developer_website": "Developer website",
         "menu_about": "About",
         "menu_exit": "Exit",
         "about_title": "{app_name} - About",
-        "about_body": "{app_name}\n\nVersion: {version}\nBuild date: {build_datetime}",
+        "about_body": "{app_name}\nDeveloped by Bunji Company\n\nVersion: {version}\nBuild date: {build_datetime}",
         "error_hook_start": "Failed to start the keyboard hook.",
         "error_send_break": "Failed to send the line break.",
         "error_single_instance": "Failed to check whether the app is already running.",
@@ -635,6 +639,15 @@ class WNDCLASS(ctypes.Structure):
 
 shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.POINTER(NOTIFYICONDATA)]
 shell32.Shell_NotifyIconW.restype = wintypes.BOOL
+shell32.ShellExecuteW.argtypes = [
+    wintypes.HWND,
+    wintypes.LPCWSTR,
+    wintypes.LPCWSTR,
+    wintypes.LPCWSTR,
+    wintypes.LPCWSTR,
+    ctypes.c_int,
+]
+shell32.ShellExecuteW.restype = wintypes.HINSTANCE
 user32.RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASS)]
 user32.RegisterClassW.restype = wintypes.ATOM
 user32.CreateWindowExW.argtypes = [
@@ -823,6 +836,12 @@ def unregister_startup():
         pass
     except OSError:
         pass
+
+
+def open_developer_website(hwnd=None):
+    result = shell32.ShellExecuteW(hwnd, "open", DEVELOPER_WEBSITE_URL, None, None, SW_SHOWNORMAL)
+    value = result if isinstance(result, int) else (result.value if result is not None else 0)
+    return bool(value and value > 32)
 
 
 def is_key_down(vk_code):
@@ -1987,6 +2006,7 @@ class TrayIcon:
             user32.AppendMenuW(menu, ja_flags, MENU_LANGUAGE_JA, self.app.t("menu_language_ja"))
             user32.AppendMenuW(menu, en_flags, MENU_LANGUAGE_EN, self.app.t("menu_language_en"))
             user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+            user32.AppendMenuW(menu, MF_STRING, MENU_DEVELOPER_WEBSITE, self.app.t("menu_developer_website"))
             user32.AppendMenuW(menu, MF_STRING, MENU_ABOUT, self.app.t("menu_about"))
             user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
             user32.AppendMenuW(menu, MF_STRING, MENU_EXIT, self.app.t("menu_exit"))
@@ -2021,6 +2041,8 @@ class TrayIcon:
             self.app._set_language("ja")
         elif command == MENU_LANGUAGE_EN:
             self.app._set_language("en")
+        elif command == MENU_DEVELOPER_WEBSITE:
+            open_developer_website(self.hwnd)
         elif command == MENU_ABOUT:
             app_name = self.app.t("app_name")
             user32.MessageBoxW(
