@@ -1,81 +1,59 @@
-# いつもの改行 for Excel / LineBuddy for Excel
+# いつもの改行 for Chat
 
-Excelのセル内で、`Alt + Enter` の代わりに `Enter` または `Shift + Enter` でセル内改行できるWindows常駐アプリです。
+生成AI、SNS、チャットアプリの入力欄で、Enterキーを入力欄内改行に置き換えるWindows常駐ツールです。
 
-英語UIでは **LineBuddy for Excel** という名前で表示します。
+このツールは送信キーそのものの変更や送信操作の代替は行いません。変換するのは、入力欄内改行だけです。
 
-## 主な特徴
+## 主な機能
 
-- `Enter` または `Shift + Enter` をセル内改行キーとして選択できます。
-- `Enter` モードでは、Excelのセル内で文字入力中のときだけ `Alt + Enter` に変換します。
-- `Shift + Enter` モードでは、セル内入力中に加えて、セルを選択しているだけの状態でもセル側だと判断できれば `Alt + Enter` に変換します。
-- 図形・テキストボックス入力中、Excel以外のアプリでは変換しません。
-- 日本語入力の変換確定を邪魔しないよう、IMEの状態を見て変換を抑制します。
-- タスクトレイに常駐し、一時停止・再開、言語切替、バージョン表示ができます。Windows起動時はダイアログを表示せずに常駐開始できます。
-- 日本語/英語のUI切替に対応しています。
-- 選択したキーと言語は次回起動時にも復元されます。
+- 生成AI、SNS、チャットの対象ごとにオン/オフを選択できます。
+- Web版とApp版を分けて管理できます。
+- 日本語IME変換中のEnterは、文字確定を優先します。
+- タイトル、URL、プロセス名のキーワードでカスタム対象を追加できます。
+- タスクトレイから一時停止、設定、言語切替、Windows起動時登録を操作できます。
 
-## 対応環境
+## 初期プリセット
 
-- Windows
-- Excel 2010
-- Excel 2019
-- Microsoft 365版Excel
+### 生成AI
 
-Excelのバージョンや更新状況によって、セル編集中の判定方法が異なるため、一部環境ではうまく動作しない可能性があります。
+- ChatGPT Web / App
+- Codex App
+- Claude Web / App
+- Gemini Web
+- Copilot Web / App
+- Perplexity Web
+- Grok Web
+- DeepSeek Web
 
-## 使い方
+### SNS・チャット
 
-1. [公式配布ページ](https://bunjicompany.com/downloads/ItsumonoKaigyoForExcel/) または [GitHub Releases](https://github.com/bunjicompany/linebuddy-for-excel/releases) から `ItsumonoKaigyoForExcel.exe` をダウンロードして起動します。
-2. 必要に応じて、セル内改行キーを `Enter` または `Shift + Enter` から選びます。選んだキーと言語は次回起動時にも復元されます。
-3. Excelのセル内で文字入力中に、選択したキーを押します。
-4. 選択したキーが `Alt + Enter` として送信され、セル内改行されます。
+- LINE App
+- X Web
+- Slack Web / App
+- Discord Web / App
+- Teams Web / App
+- Instagram Web
+- WhatsApp Web / App
 
-## 安全設計
-
-このアプリは、誤変換を避けるために「変換されない」ことを優先しています。
-
-- Excelが前面ではない場合は変換しません。
-- `Enter` モードでは、セル内入力中だと判断できない場合は変換しません。
-- `Shift + Enter` モードでは、セルを選択しているだけの状態でもセル側だと判断できれば変換します。
-- 図形・テキストボックス入力中は変換しません。
-- 日本語変換の確定中と判断した場合は、確定を優先して変換しません。
-- キー以外の操作でセル編集を抜けた可能性がある場合は、古い推定状態を使わず変換しません。
-
-## 開発環境
-
-アプリ本体は Python と Windows API（ctypes）で実装しています。exe化には PyInstaller を使います。
+## 開発・ビルド
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm ItsumonoKaigyoForExcel.spec
+.\.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm ItsumonoKaigyo.spec
 ```
 
-または、PowerShellで次を実行します。
+または:
 
 ```powershell
 .\build_exe.ps1
 ```
 
-ビルドすると、`dist\ItsumonoKaigyoForExcel.exe` が生成されます。ビルド時にアプリ内のバージョン情報も更新されます。
+ビルド後、`dist\ItsumonoKaigyoForChat.exe` が生成されます。
 
 ## 主なファイル
 
-- `excel_line_breaker.py`: アプリ本体
-- `ItsumonoKaigyoForExcel.spec`: PyInstaller設定
+- `itsumono_kaigyo.py`: アプリ本体
+- `ItsumonoKaigyo.spec`: PyInstaller設定
 - `app_icon.ico`: アプリアイコン
-- `requirements.txt`: 開発・ビルド用依存関係
-
-## リンク
-
-- [公式配布ページ](https://bunjicompany.com/downloads/ItsumonoKaigyoForExcel/)
-- [GitHub Releases](https://github.com/bunjicompany/linebuddy-for-excel/releases)
-
-## ライセンス
-
-MIT Licenseです。詳しくは [LICENSE](LICENSE) を参照してください。
-
-## 作者
-
-[ぶんじカンパニー](https://bunjicompany.com/)
+- `ItsumonoKaigyoForChat_settings.json`: 設定ファイル

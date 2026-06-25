@@ -9,6 +9,6 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 
 & ".\.venv\Scripts\python.exe" -m pip install --upgrade pip
 & ".\.venv\Scripts\python.exe" -m pip install -r requirements.txt
-& ".\.venv\Scripts\python.exe" -m PyInstaller --clean --noconfirm ItsumonoKaigyoForExcel.spec
+& ".\.venv\Scripts\python.exe" -m PyInstaller --clean --noconfirm ItsumonoKaigyo.spec
 
-Write-Host "Built: $Root\dist\ItsumonoKaigyoForExcel.exe"
+Write-Host "Built: $Root\dist\ItsumonoKaigyoForChat.exe"

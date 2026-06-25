@@ -9,7 +9,7 @@ def update_build_version():
     now = datetime.now(timezone(timedelta(hours=9)))
     version = now.strftime("%Y%m%d-%H%M%S")
     build_datetime = now.strftime("%Y-%m-%d %H:%M:%S +09:00")
-    source_path = Path("excel_line_breaker.py")
+    source_path = Path("itsumono_kaigyo.py")
     source = source_path.read_text(encoding="utf-8")
     source = re.sub(r'APP_VERSION = "[^"]+"', f'APP_VERSION = "{version}"', source, count=1)
     source = re.sub(
@@ -24,7 +24,7 @@ def update_build_version():
 update_build_version()
 
 a = Analysis(
-    ["excel_line_breaker.py"],
+    ["itsumono_kaigyo.py"],
     pathex=[],
     binaries=[],
     datas=[("app_icon.ico", ".")],
@@ -44,7 +44,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="ItsumonoKaigyoForExcel",
+    name="ItsumonoKaigyoForChat",
     icon="app_icon.ico",
     debug=False,
     bootloader_ignore_signals=False,
