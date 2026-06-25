@@ -15,8 +15,8 @@ from pathlib import Path
 
 APP_NAME = "いつもの改行 for Chat"
 APP_NAME_EN = "LineBuddy for Chat"
-APP_VERSION = "20260625-192130"
-APP_BUILD_DATETIME = "2026-06-25 19:21:30 +09:00"
+APP_VERSION = "20260625-194442"
+APP_BUILD_DATETIME = "2026-06-25 19:44:42 +09:00"
 DEVELOPER_NAME = "ぶんじカンパニー"
 DEVELOPER_NAME_EN = "Bunji Company"
 DEVELOPER_URL = "https://bunjicompany.com/"
@@ -741,7 +741,7 @@ BUILTIN_TARGETS = [
     TargetDefinition("perplexity_web", "Perplexity Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("perplexity",), url_keywords=("perplexity.ai",)),
     TargetDefinition("grok_web", "Grok Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("grok",), url_keywords=("grok.com", "x.com/i/grok")),
     TargetDefinition("deepseek_web", "DeepSeek Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("deepseek",), url_keywords=("deepseek.com",)),
-    TargetDefinition("line_app", "LINE App", "SNS・チャット", "App", ACTION_SHIFT_ENTER, MODE_ENTER, processes=("line.exe",), window_title_keywords=("line",)),
+    TargetDefinition("line_app", "LINE App", "SNS・チャット", "App", ACTION_SHIFT_ENTER, MODE_ENTER, processes=("line.exe",)),
     TargetDefinition("x_web", "X Web", "SNS・チャット", "Web", ACTION_SHIFT_ENTER, MODE_OFF, window_title_keywords=("x.com", "twitter", "/ x", "- x"), url_keywords=("x.com", "twitter.com")),
     TargetDefinition("slack_web", "Slack Web", "SNS・チャット", "Web", ACTION_SHIFT_ENTER, MODE_OFF, window_title_keywords=("slack",), url_keywords=("slack.com",)),
     TargetDefinition("slack_app", "Slack App", "SNS・チャット", "App", ACTION_SHIFT_ENTER, MODE_OFF, processes=("slack.exe",), window_title_keywords=("slack",)),
@@ -1634,8 +1634,13 @@ def text_matches(text, keywords):
     return any(keyword.lower() in lowered for keyword in keywords)
 
 
+OWN_WINDOW_CLASS_PREFIX = "ItsumonoKaigyo"
+
+
 def detect_target():
     hwnd, _thread_id, _pid = foreground_window_info()
+    if window_class_name(hwnd).startswith(OWN_WINDOW_CLASS_PREFIX):
+        return None
     process_names = process_names_for_window_tree(hwnd)
     foreground_process = foreground_process_name()
     process = foreground_process or next(iter(process_names), "")
