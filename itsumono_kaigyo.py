@@ -15,8 +15,8 @@ from pathlib import Path
 
 APP_NAME = "いつもの改行 for Chat"
 APP_NAME_EN = "LineBuddy for Chat"
-APP_VERSION = "20260625-191025"
-APP_BUILD_DATETIME = "2026-06-25 19:10:25 +09:00"
+APP_VERSION = "20260625-192130"
+APP_BUILD_DATETIME = "2026-06-25 19:21:30 +09:00"
 DEVELOPER_NAME = "ぶんじカンパニー"
 DEVELOPER_NAME_EN = "Bunji Company"
 DEVELOPER_URL = "https://bunjicompany.com/"
