@@ -14,9 +14,9 @@ https://bunjicompany.com/downloads/ItsumonoKaigyoForChat/
 
 https://github.com/bunjicompany/linebuddy-for-chat/releases
 
-## 安心して使うために
+## 安全性について
 
-このアプリは、入力した文章・パスワード・クリップボードの内容を読み取りません。
+このアプリは、入力した文章・パスワード・クリップボードの内容を読み取り・保存しません。
 キー操作を変換するために必要な範囲で、現在のウィンドウ状態とキー入力イベントを判定します。
 外部サーバーへの送信は行いません。
 

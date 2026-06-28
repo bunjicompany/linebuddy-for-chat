@@ -17,13 +17,13 @@ https://bunjicompany.com/downloads/ItsumonoKaigyoForChat/
 
 GitHub Releasesでは、更新履歴と過去バージョンを確認できます。
 
-GitHub Releasesからダウンロードする場合:
-- Windowsアプリ: `ItsumonoKaigyoForChat.exe`
+GitHub Releasesからダウンロードする場合は、下の `ItsumonoKaigyoForChat.exe` をダウンロードして実行してください。
 
 ## 注意事項
 
 - 個人開発アプリのため、Windows SmartScreenの警告が表示される場合があります。
-- このアプリは、入力した文章・パスワード・クリップボードの内容を読み取りません。
+- このアプリは、入力した文章・パスワード・クリップボードの内容を読み取り・保存しません。
+- キー操作を変換するために必要な範囲で、現在のウィンドウ状態とキー入力イベントを判定します。
 - 送信キーそのものの変更や送信操作の代替は行いません。
 - 外部サーバーへの送信は行いません。
 - リリースタグの表記は、現在の日時型タグ運用に合わせます。
