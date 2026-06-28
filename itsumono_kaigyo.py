@@ -15,8 +15,8 @@ from pathlib import Path
 
 APP_NAME = "いつもの改行 for Chat"
 APP_NAME_EN = "LineBuddy for Chat"
-APP_VERSION = "20260625-194442"
-APP_BUILD_DATETIME = "2026-06-25 19:44:42 +09:00"
+APP_VERSION = "20260628-144610"
+APP_BUILD_DATETIME = "2026-06-28 14:46:10 +09:00"
 DEVELOPER_NAME = "ぶんじカンパニー"
 DEVELOPER_NAME_EN = "Bunji Company"
 DEVELOPER_URL = "https://bunjicompany.com/"
@@ -859,19 +859,23 @@ def configured_targets(target_definition_configs, custom_target_configs):
 
 
 def target_definition_config(target):
+    window_title_keywords = []
+    url_keywords = list(target.url_keywords)
+    if target.surface != "Web":
+        window_title_keywords = list(target.window_title_keywords)
     data = {
         "key": target.key,
         "label": target.label,
         "category": target.category,
         "surface": target.surface,
         "action": target.action,
-        "window_title_keywords": list(target.window_title_keywords),
+        "window_title_keywords": window_title_keywords,
         "default_mode": config_mode_from_values(target.action, target.default_mode),
     }
     if target.processes:
         data["processes"] = list(target.processes)
-    if target.url_keywords:
-        data["url_keywords"] = list(target.url_keywords)
+    if target.surface == "Web" or url_keywords:
+        data["url_keywords"] = url_keywords
     return data
 
 
