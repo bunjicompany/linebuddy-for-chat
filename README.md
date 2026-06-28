@@ -4,7 +4,15 @@
 
 このツールは送信キーそのものの変更や送信操作の代替は行いません。変換するのは、入力欄内改行だけです。
 
-![いつもの改行 for Chat の動作イメージ](assets/demo.svg)
+<table>
+  <tr>
+    <td><img src="assets/dialog-top.png" alt="いつもの改行 for Chat のメイン画面"></td>
+    <td><img src="assets/dialog-settings.png" alt="いつもの改行 for Chat の設定画面"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="assets/dialog-edit-custom.png" alt="いつもの改行 for Chat のカスタム編集画面"></td>
+  </tr>
+</table>
 
 ## ダウンロード
 
