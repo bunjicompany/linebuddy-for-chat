@@ -52,6 +52,7 @@ https://github.com/bunjicompany/linebuddy-for-chat/releases
 - Perplexity Web
 - Grok Web
 - DeepSeek Web
+- Agent i Web
 
 ### SNS・チャット
 
@@ -104,6 +105,15 @@ python -m venv .venv
 
 ```powershell
 .\build_exe.ps1
+```
+
+ビルド時に `APP_VERSION` が自動更新されます。既定では patch が 1 つ上がります。
+
+```powershell
+.\build_exe.ps1 -VersionBump patch
+.\build_exe.ps1 -VersionBump minor
+.\build_exe.ps1 -VersionBump major
+.\build_exe.ps1 -VersionBump none
 ```
 
 ビルド後、`dist\ItsumonoKaigyoForChat.exe` が生成されます。

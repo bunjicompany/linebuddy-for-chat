@@ -15,8 +15,7 @@ from pathlib import Path
 
 APP_NAME = "いつもの改行 for Chat"
 APP_NAME_EN = "LineBuddy for Chat"
-APP_VERSION = "20260628-144610"
-APP_BUILD_DATETIME = "2026-06-28 14:46:10 +09:00"
+APP_VERSION = "v1.0.0"
 DEVELOPER_NAME = "ぶんじカンパニー"
 DEVELOPER_NAME_EN = "Bunji Company"
 DEVELOPER_URL = "https://bunjicompany.com/"
@@ -741,6 +740,7 @@ BUILTIN_TARGETS = [
     TargetDefinition("perplexity_web", "Perplexity Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("perplexity",), url_keywords=("perplexity.ai",)),
     TargetDefinition("grok_web", "Grok Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("grok",), url_keywords=("grok.com", "x.com/i/grok")),
     TargetDefinition("deepseek_web", "DeepSeek Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("deepseek",), url_keywords=("deepseek.com",)),
+    TargetDefinition("agent_i_web", "Agent i Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("agent i",), url_keywords=("search.yahoo.co.jp/chat",)),
     TargetDefinition("line_app", "LINE App", "SNS・チャット", "App", ACTION_SHIFT_ENTER, MODE_ENTER, processes=("line.exe",)),
     TargetDefinition("x_web", "X Web", "SNS・チャット", "Web", ACTION_SHIFT_ENTER, MODE_OFF, window_title_keywords=("x.com", "twitter", "/ x", "- x"), url_keywords=("x.com", "twitter.com")),
     TargetDefinition("slack_web", "Slack Web", "SNS・チャット", "Web", ACTION_SHIFT_ENTER, MODE_OFF, window_title_keywords=("slack",), url_keywords=("slack.com",)),
@@ -854,8 +854,55 @@ def configured_targets(target_definition_configs, custom_target_configs):
     if isinstance(target_definition_configs, list):
         parsed_targets = parse_target_configs(target_definition_configs)
         if parsed_targets:
-            return parsed_targets
-    return list(BUILTIN_TARGETS) + parse_custom_targets(custom_target_configs)
+            targets_by_key = {target.key: target for target in parsed_targets}
+            builtin_keys = {target.key for target in BUILTIN_TARGETS}
+            default_builtin_targets = parse_target_configs([
+                target_definition_config(target)
+                for target in BUILTIN_TARGETS
+            ])
+            return [
+                targets_by_key.get(target.key, target)
+                for target in default_builtin_targets
+            ] + [
+                target for target in parsed_targets
+                if target.key not in builtin_keys
+            ]
+    return parse_target_configs([
+        target_definition_config(target)
+        for target in BUILTIN_TARGETS
+    ]) + parse_custom_targets(custom_target_configs)
+
+
+def default_builtin_target_definition_configs():
+    return [
+        target_definition_config(target)
+        for target in BUILTIN_TARGETS
+    ]
+
+
+def merge_builtin_target_definition_configs(target_definition_configs):
+    if not isinstance(target_definition_configs, list):
+        target_definition_configs = []
+    source_items = json.loads(json.dumps(target_definition_configs))
+    builtin_keys = {target.key for target in BUILTIN_TARGETS}
+    existing_by_key = {}
+    for item in source_items:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key", "")).strip()
+        if key and key not in existing_by_key:
+            existing_by_key[key] = item
+    merged = []
+    for item in default_builtin_target_definition_configs():
+        merged.append(existing_by_key.get(item["key"], item))
+    for item in source_items:
+        if not isinstance(item, dict):
+            merged.append(item)
+            continue
+        key = str(item.get("key", "")).strip()
+        if key not in builtin_keys:
+            merged.append(item)
+    return merged
 
 
 def target_definition_config(target):
@@ -907,7 +954,7 @@ def default_custom_target_configs():
 
 
 def default_target_definitions_config():
-    return [target_definition_config(target) for target in BUILTIN_TARGETS] + default_custom_target_configs()
+    return default_builtin_target_definition_configs() + default_custom_target_configs()
 
 
 def mode_options_for_target(target):
@@ -989,7 +1036,7 @@ def load_config():
     if not isinstance(loaded, dict):
         loaded = {}
     if config_exists:
-        target_definition_configs = loaded.get("target_definitions", [])
+        target_definition_configs = merge_builtin_target_definition_configs(loaded.get("target_definitions", []))
         custom_target_configs = loaded.get("custom_targets", [])
     else:
         target_definition_configs = default_target_definitions_config()
@@ -1012,7 +1059,7 @@ def load_config():
                 config["targets"][key] = internal_mode_from_config_for_target(target, mode)
     for target in TARGETS:
         config["targets"][target.key] = normalize_mode_for_target(target, config["targets"].get(target.key, target.default_mode))
-    if not config_exists:
+    if not config_exists or target_definition_configs != loaded.get("target_definitions", []):
         try:
             save_config(config)
         except OSError:
@@ -2174,16 +2221,14 @@ class Win32App:
             message = (
                 f"{APP_NAME_EN}\n"
                 f"Developed by {DEVELOPER_NAME_EN}\n\n"
-                f"Version: {APP_VERSION}\n"
-                f"Build date: {APP_BUILD_DATETIME}"
+                f"Version: {APP_VERSION}"
             )
             title = f"{APP_NAME_EN} - About"
         else:
             message = (
                 f"{APP_NAME}\n"
                 f"Developed by {DEVELOPER_NAME}\n\n"
-                f"バージョン: {APP_VERSION}\n"
-                f"ビルド日時: {APP_BUILD_DATETIME}"
+                f"バージョン: {APP_VERSION}"
             )
             title = f"{APP_NAME} - バージョン情報"
         user32.MessageBoxW(self.hwnd, message, title, MB_OK)
@@ -2373,8 +2418,8 @@ class Win32App:
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            670,
-            600,
+            530,
+            642,
             self.hwnd,
             None,
             self.hinstance,
@@ -2401,14 +2446,14 @@ class Win32App:
                 CONTROL_SETTINGS_TAB_BASE + index,
             )
             self.settings_controls[f"tab_{index}"] = tab
-        self.settings_controls["reset_defaults"] = self._create_window("BUTTON", "Reset Defaults" if self._is_english() else "初期値に戻す", BS_PUSHBUTTON | WS_TABSTOP, 502, 20, 120, 30, hwnd, CONTROL_SETTINGS_RESET_DEFAULTS)
+        self.settings_controls["reset_defaults"] = self._create_window("BUTTON", "Reset Defaults" if self._is_english() else "初期値に戻す", BS_PUSHBUTTON | WS_TABSTOP, 350, 20, 120, 30, hwnd, CONTROL_SETTINGS_RESET_DEFAULTS)
         self.settings_viewport_hwnd = None
-        self.settings_scrollbar_hwnd = self._create_window("SCROLLBAR", "", SBS_VERT, 614, 72, 18, 406, hwnd, CONTROL_SETTINGS_SCROLLBAR)
+        self.settings_scrollbar_hwnd = self._create_window("SCROLLBAR", "", SBS_VERT, 470, 72, 18, 448, hwnd, CONTROL_SETTINGS_SCROLLBAR)
         self._render_settings_list()
         self._update_settings_tabs()
-        self.settings_controls["custom_edit"] = self._create_window("BUTTON", "Edit Custom" if self._is_english() else "カスタム編集", BS_PUSHBUTTON | WS_TABSTOP, 32, 508, 116, 30, hwnd, CONTROL_SETTINGS_CUSTOM_EDIT)
-        self.settings_controls["save"] = self._create_window("BUTTON", "Save" if self._is_english() else "保存", BS_DEFPUSHBUTTON | WS_TABSTOP, 458, 508, 72, 30, hwnd, CONTROL_SETTINGS_SAVE)
-        self.settings_controls["cancel"] = self._create_window("BUTTON", "Cancel" if self._is_english() else "キャンセル", BS_PUSHBUTTON | WS_TABSTOP, 540, 508, 82, 30, hwnd, CONTROL_SETTINGS_CANCEL)
+        self.settings_controls["custom_edit"] = self._create_window("BUTTON", "Edit Custom" if self._is_english() else "カスタム編集", BS_PUSHBUTTON | WS_TABSTOP, 32, 550, 116, 30, hwnd, CONTROL_SETTINGS_CUSTOM_EDIT)
+        self.settings_controls["save"] = self._create_window("BUTTON", "Save" if self._is_english() else "保存", BS_DEFPUSHBUTTON | WS_TABSTOP, 306, 550, 72, 30, hwnd, CONTROL_SETTINGS_SAVE)
+        self.settings_controls["cancel"] = self._create_window("BUTTON", "Cancel" if self._is_english() else "キャンセル", BS_PUSHBUTTON | WS_TABSTOP, 388, 550, 82, 30, hwnd, CONTROL_SETTINGS_CANCEL)
         self._update_custom_edit_button()
 
     def _apply_settings_language(self):
@@ -2483,7 +2528,7 @@ class Win32App:
             y += 28
             row_index += 1
         self.settings_scroll_offset = 0
-        self.settings_scroll_max = max(0, y - 406)
+        self.settings_scroll_max = max(0, y - 448)
         user32.SetScrollRange(self.settings_scrollbar_hwnd, SB_CTL, 0, self.settings_scroll_max, True)
         user32.SetScrollPos(self.settings_scrollbar_hwnd, SB_CTL, 0, True)
         user32.ShowWindow(self.settings_scrollbar_hwnd, SW_SHOW if self.settings_scroll_max > 0 else SW_HIDE)
@@ -2499,7 +2544,7 @@ class Win32App:
         base_x = 20
         base_y = 72
         view_top = base_y
-        view_bottom = base_y + 406
+        view_bottom = base_y + 448
         for item in self.settings_scroll_items:
             y = base_y + item["y"] - offset
             visible = y >= view_top and y + item["h"] <= view_bottom
