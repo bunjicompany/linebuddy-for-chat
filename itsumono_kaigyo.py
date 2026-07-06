@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP_NAME = "いつもの改行 for Chat"
 APP_NAME_EN = "LineBuddy for Chat"
-APP_VERSION = "v1.0.0"
+APP_VERSION = "v1.1.0"
 DEVELOPER_NAME = "ぶんじカンパニー"
 DEVELOPER_NAME_EN = "Bunji Company"
 DEVELOPER_URL = "https://bunjicompany.com/"
@@ -276,6 +276,9 @@ CONTROL_CUSTOM_URL_KEYWORDS = 7030
 CONTROL_CUSTOM_DEFAULT_MODE = 7040
 CONTROL_CUSTOM_SAVE = 7041
 CONTROL_CUSTOM_CANCEL = 7042
+CONTROL_CUSTOM_TITLE_REGEX = 7050
+CONTROL_CUSTOM_PROCESSES_REGEX = 7051
+CONTROL_CUSTOM_URL_REGEX = 7052
 STATUS_TIMER_ID = 4001
 TRAY_UID = 5001
 TRAY_MENU_OPEN = 6001
@@ -726,6 +729,9 @@ class TargetDefinition:
     processes: tuple[str, ...] = ()
     window_title_keywords: tuple[str, ...] = ()
     url_keywords: tuple[str, ...] = ()
+    processes_regex: bool = False
+    window_title_keywords_regex: bool = False
+    url_keywords_regex: bool = False
 
 
 BUILTIN_TARGETS = [
@@ -792,6 +798,44 @@ def string_tuple(value):
     return ()
 
 
+REGEX_FLAG_FIELDS = (
+    ("processes", "processes_regex"),
+    ("window_title_keywords", "window_title_keywords_regex"),
+    ("url_keywords", "url_keywords_regex"),
+)
+
+
+def ensure_regex_flags(item):
+    if isinstance(item, dict):
+        for field, flag in REGEX_FLAG_FIELDS:
+            if field in item and flag not in item:
+                item[flag] = False
+    return item
+
+
+_regex_cache = {}
+
+
+def compiled_regex(pattern):
+    if pattern in _regex_cache:
+        return _regex_cache[pattern]
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE)
+    except re.error as error:
+        debug_log(f"invalid regex ignored pattern={pattern!r} error={error}")
+        compiled = None
+    _regex_cache[pattern] = compiled
+    return compiled
+
+
+def regex_error_text(pattern):
+    try:
+        re.compile(pattern, re.IGNORECASE)
+        return ""
+    except re.error as error:
+        return str(error)
+
+
 def parse_target_configs(value, reserved_keys=()):
     if not isinstance(value, list):
         return []
@@ -814,6 +858,9 @@ def parse_target_configs(value, reserved_keys=()):
         processes = string_tuple(item.get("processes", ()))
         window_title_keywords = string_tuple(item.get("window_title_keywords", ()))
         url_keywords = string_tuple(item.get("url_keywords", ()))
+        processes_regex = bool(item.get("processes_regex", False))
+        window_title_keywords_regex = bool(item.get("window_title_keywords_regex", False))
+        url_keywords_regex = bool(item.get("url_keywords_regex", False))
         is_custom_slot = key.startswith(("gai_custom_", "sns_custom_"))
         if not is_custom_slot:
             if surface == "Web" and not (window_title_keywords or url_keywords):
@@ -831,6 +878,9 @@ def parse_target_configs(value, reserved_keys=()):
                 processes=processes,
                 window_title_keywords=window_title_keywords,
                 url_keywords=url_keywords,
+                processes_regex=processes_regex,
+                window_title_keywords_regex=window_title_keywords_regex,
+                url_keywords_regex=url_keywords_regex,
             )
         )
         used_keys.add(key)
@@ -848,6 +898,15 @@ def activate_targets(targets):
     for target in TARGETS:
         if target.category not in CATEGORIES:
             CATEGORIES.append(target.category)
+        if target.processes_regex:
+            for pattern in target.processes:
+                compiled_regex(pattern)
+        if target.window_title_keywords_regex:
+            for pattern in target.window_title_keywords:
+                compiled_regex(pattern)
+        if target.url_keywords_regex:
+            for pattern in target.url_keywords:
+                compiled_regex(pattern)
 
 
 def configured_targets(target_definition_configs, custom_target_configs):
@@ -902,7 +961,7 @@ def merge_builtin_target_definition_configs(target_definition_configs):
         key = str(item.get("key", "")).strip()
         if key not in builtin_keys:
             merged.append(item)
-    return merged
+    return [ensure_regex_flags(item) for item in merged]
 
 
 def target_definition_config(target):
@@ -917,12 +976,15 @@ def target_definition_config(target):
         "surface": target.surface,
         "action": target.action,
         "window_title_keywords": window_title_keywords,
+        "window_title_keywords_regex": bool(target.window_title_keywords_regex),
         "default_mode": config_mode_from_values(target.action, target.default_mode),
     }
     if target.processes:
         data["processes"] = list(target.processes)
+        data["processes_regex"] = bool(target.processes_regex)
     if target.surface == "Web" or url_keywords:
         data["url_keywords"] = url_keywords
+        data["url_keywords_regex"] = bool(target.url_keywords_regex)
     return data
 
 
@@ -936,7 +998,9 @@ def default_custom_target_configs():
             "surface": "Web",
             "action": ACTION_SHIFT_ENTER,
             "window_title_keywords": [],
+            "window_title_keywords_regex": False,
             "url_keywords": [],
+            "url_keywords_regex": False,
             "default_mode": MODE_OFF,
         })
     for index in range(1, 4):
@@ -947,7 +1011,9 @@ def default_custom_target_configs():
             "surface": "App",
             "action": ACTION_SHIFT_ENTER,
             "processes": [],
+            "processes_regex": False,
             "window_title_keywords": [],
+            "window_title_keywords_regex": False,
             "default_mode": MODE_OFF,
         })
     return result
@@ -1685,6 +1751,32 @@ def text_matches(text, keywords):
     return any(keyword.lower() in lowered for keyword in keywords)
 
 
+def keywords_match(text, keywords, use_regex):
+    if not use_regex:
+        return text_matches(text, keywords)
+    for pattern in keywords:
+        compiled = compiled_regex(pattern)
+        if compiled and compiled.search(text):
+            return True
+    return False
+
+
+def processes_match(process_names, target):
+    if not target.processes:
+        return False
+    if target.processes_regex:
+        for pattern in target.processes:
+            compiled = compiled_regex(pattern)
+            if not compiled:
+                continue
+            for name in process_names:
+                if compiled.fullmatch(name):
+                    return True
+        return False
+    target_processes = {item.lower() for item in target.processes}
+    return bool(process_names & target_processes)
+
+
 OWN_WINDOW_CLASS_PREFIX = "ItsumonoKaigyo"
 
 
@@ -1701,14 +1793,13 @@ def detect_target():
         browser_url = browser_current_url()
     for target in TARGETS:
         if target.surface == "Web":
-            title_matched = text_matches(title, target.window_title_keywords)
-            url_matched = bool(browser_url) and text_matches(browser_url, target.url_keywords)
+            title_matched = keywords_match(title, target.window_title_keywords, target.window_title_keywords_regex)
+            url_matched = bool(browser_url) and keywords_match(browser_url, target.url_keywords, target.url_keywords_regex)
             if foreground_process in BROWSER_PROCESSES and (title_matched or url_matched):
                 return target
             continue
-        target_processes = {item.lower() for item in target.processes}
-        process_matched = bool(process_names & target_processes)
-        title_matched = bool(target.window_title_keywords) and text_matches(title, target.window_title_keywords)
+        process_matched = processes_match(process_names, target)
+        title_matched = bool(target.window_title_keywords) and keywords_match(title, target.window_title_keywords, target.window_title_keywords_regex)
         if process_matched or (process not in BROWSER_PROCESSES and title_matched):
             return target
     return None
@@ -2000,6 +2091,9 @@ class Win32App:
                 "title_keywords": "Title keywords",
                 "processes": "Process names",
                 "url_keywords": "URL keywords",
+                "title_regex": "Regex",
+                "processes_regex": "Regex",
+                "url_regex": "Regex",
                 "default_mode": "Default mode",
                 "save": "Save",
                 "close": "Close",
@@ -2012,6 +2106,9 @@ class Win32App:
                 "title_keywords": "タイトルキーワード",
                 "processes": "プロセス名",
                 "url_keywords": "URLキーワード",
+                "title_regex": "正規表現",
+                "processes_regex": "正規表現",
+                "url_regex": "正規表現",
                 "default_mode": "初期モード",
                 "save": "保存",
                 "close": "閉じる",
@@ -2665,6 +2762,9 @@ class Win32App:
         for index in range(3):
             edit = self._create_window("EDIT", "", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 160, y + index * 32 - 2, 330, 28, hwnd, CONTROL_CUSTOM_TITLE_KEYWORDS + index)
             self.custom_edit_controls["window_title_keywords"].append(edit)
+        title_regex = self._create_window("BUTTON", self._custom_edit_label("title_regex"), BS_AUTOCHECKBOX | WS_TABSTOP, 24, y + 32, 120, 24, hwnd, CONTROL_CUSTOM_TITLE_REGEX)
+        labels["title_regex"] = title_regex
+        self.custom_edit_controls["window_title_keywords_regex"] = title_regex
         y += 104
 
         self.custom_edit_controls["processes_label"] = self._create_window("STATIC", self._custom_edit_label("processes"), SS_LEFT | SS_CENTERIMAGE, 24, y, 130, 24, hwnd)
@@ -2678,6 +2778,12 @@ class Win32App:
             url_edit = self._create_window("EDIT", "", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 160, y + index * 32 - 2, 330, 28, hwnd, CONTROL_CUSTOM_URL_KEYWORDS + index)
             self.custom_edit_controls["processes"].append(process_edit)
             self.custom_edit_controls["url_keywords"].append(url_edit)
+        processes_regex = self._create_window("BUTTON", self._custom_edit_label("processes_regex"), BS_AUTOCHECKBOX | WS_TABSTOP, 24, y + 32, 120, 24, hwnd, CONTROL_CUSTOM_PROCESSES_REGEX)
+        labels["processes_regex"] = processes_regex
+        self.custom_edit_controls["processes_regex"] = processes_regex
+        url_regex = self._create_window("BUTTON", self._custom_edit_label("url_regex"), BS_AUTOCHECKBOX | WS_TABSTOP, 24, y + 32, 120, 24, hwnd, CONTROL_CUSTOM_URL_REGEX)
+        labels["url_regex"] = url_regex
+        self.custom_edit_controls["url_keywords_regex"] = url_regex
         y += 104
 
         labels["default_mode"] = self._create_window("STATIC", self._custom_edit_label("default_mode"), SS_LEFT | SS_CENTERIMAGE, 24, y, 130, 24, hwnd)
@@ -2722,7 +2828,11 @@ class Win32App:
             controls = self.custom_edit_controls.get(name, [])
             if not isinstance(controls, list):
                 controls = [controls]
-            for hwnd in controls + [self.custom_edit_controls.get(f"{name}_label")]:
+            extras = [
+                self.custom_edit_controls.get(f"{name}_label"),
+                self.custom_edit_controls.get(f"{name}_regex"),
+            ]
+            for hwnd in controls + extras:
                 if hwnd:
                     user32.ShowWindow(hwnd, SW_SHOW if visible else SW_HIDE)
 
@@ -2738,6 +2848,15 @@ class Win32App:
             if text:
                 result.append(text)
         return result
+
+    def _set_check(self, hwnd, checked):
+        if hwnd:
+            user32.SendMessageW(hwnd, BM_SETCHECK, BST_CHECKED if checked else 0, 0)
+
+    def _get_check(self, hwnd):
+        if not hwnd:
+            return False
+        return int(user32.SendMessageW(hwnd, BM_GETCHECK, 0, 0)) == BST_CHECKED
 
     def _combo_select_value(self, hwnd, values, value):
         try:
@@ -2760,6 +2879,9 @@ class Win32App:
         self._set_list_fields("processes", item.get("processes", []))
         self._set_list_fields("window_title_keywords", item.get("window_title_keywords", []))
         self._set_list_fields("url_keywords", item.get("url_keywords", []))
+        self._set_check(self.custom_edit_controls.get("processes_regex"), bool(item.get("processes_regex", False)))
+        self._set_check(self.custom_edit_controls.get("window_title_keywords_regex"), bool(item.get("window_title_keywords_regex", False)))
+        self._set_check(self.custom_edit_controls.get("url_keywords_regex"), bool(item.get("url_keywords_regex", False)))
         self._combo_select_value(self.custom_edit_controls["surface"], ["Web", "App"], str(item.get("surface", "Web")))
         mode_options = self._custom_edit_mode_options()
         mode = internal_mode_from_config_values(str(item.get("action", ACTION_SHIFT_ENTER)), item.get("default_mode", MODE_OFF))
@@ -2776,16 +2898,43 @@ class Win32App:
         item["surface"] = self._combo_value(self.custom_edit_controls["surface"], ["Web", "App"])
         item["action"] = ACTION_SHIFT_ENTER
         item["window_title_keywords"] = self._get_list_fields("window_title_keywords")
+        item["window_title_keywords_regex"] = self._get_check(self.custom_edit_controls.get("window_title_keywords_regex"))
         if item["surface"] == "Web":
             item["url_keywords"] = self._get_list_fields("url_keywords")
+            item["url_keywords_regex"] = self._get_check(self.custom_edit_controls.get("url_keywords_regex"))
             item.pop("processes", None)
+            item.pop("processes_regex", None)
         else:
             item["processes"] = self._get_list_fields("processes")
+            item["processes_regex"] = self._get_check(self.custom_edit_controls.get("processes_regex"))
             item.pop("url_keywords", None)
+            item.pop("url_keywords_regex", None)
         item["default_mode"] = self._combo_value(self.custom_edit_controls["default_mode"], self._custom_edit_mode_options())
+
+    def _invalid_custom_regex(self):
+        for item in self.custom_edit_configs:
+            if not isinstance(item, dict):
+                continue
+            for field, flag in REGEX_FLAG_FIELDS:
+                if not item.get(flag):
+                    continue
+                for pattern in string_tuple(item.get(field, ())):
+                    error = regex_error_text(pattern)
+                    if error:
+                        return item, field, pattern, error
+        return None
 
     def _save_custom_edit(self):
         self._store_custom_edit_form()
+        invalid = self._invalid_custom_regex()
+        if invalid:
+            item, field, pattern, error = invalid
+            if self._is_english():
+                message = f"Invalid regular expression in {item.get('key', '')} ({field}):\n{pattern}\n{error}"
+            else:
+                message = f"{item.get('key', '')} の {field} に不正な正規表現があります。\n{pattern}\n{error}"
+            user32.MessageBoxW(self.custom_edit_hwnd, message, self._app_title(), MB_OK)
+            return False
         definitions = self.config_data.get("target_definitions", [])
         if not isinstance(definitions, list):
             definitions = []
@@ -2815,6 +2964,7 @@ class Win32App:
         self.settings_modes = json.loads(json.dumps(self.config_data["targets"]))
         self._render_settings_list()
         self._update_settings_tabs()
+        return True
 
     def _reset_settings_defaults(self):
         result = user32.MessageBoxW(self.settings_hwnd, "各対象の選択を初期モードに戻します。よろしいですか？", APP_NAME, MB_OKCANCEL)
@@ -2904,8 +3054,8 @@ class Win32App:
                 self._update_custom_edit_fields()
                 return 0
             if control_id == CONTROL_CUSTOM_SAVE:
-                self._save_custom_edit()
-                self._close_custom_edit()
+                if self._save_custom_edit():
+                    self._close_custom_edit()
                 return 0
             if control_id == CONTROL_CUSTOM_CANCEL:
                 self._close_custom_edit()
@@ -3003,3 +3153,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+# sync
