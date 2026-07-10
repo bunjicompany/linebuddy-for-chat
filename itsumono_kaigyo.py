@@ -15,7 +15,7 @@ from pathlib import Path
 
 APP_NAME = "いつもの改行 for Chat"
 APP_NAME_EN = "LineBuddy for Chat"
-APP_VERSION = "v1.1.0"
+APP_VERSION = "v1.1.1"
 DEVELOPER_NAME = "ぶんじカンパニー"
 DEVELOPER_NAME_EN = "Bunji Company"
 DEVELOPER_URL = "https://bunjicompany.com/"
@@ -84,6 +84,9 @@ IMM_ERROR_NODATA = -1
 IMM_ERROR_GENERAL = -2
 IME_RECENT_INPUT_SECONDS = 8.0
 ENTER_SUPPRESS_AFTER_CONVERSION_SECONDS = 0.18
+WRAP_SHIFT_HOLD_SECONDS = 0.3
+WRAP_SHIFT_MAX_HOLD_SECONDS = 2.0
+WRAP_RESIDUAL_SHIFT_SECONDS = 0.5
 SEND_EXTRA_INFO = 0x49544B47
 IMC_GETOPENSTATUS = 0x0005
 IMC_GETCONVERSIONMODE = 0x0001
@@ -223,21 +226,28 @@ AI_SNS_MODE_LABELS = {
 }
 ACTION_SHIFT_ENTER = "shift_enter"
 
-BROWSER_PROCESSES = {
+DEFAULT_BROWSER_PROCESSES = (
     "chrome.exe",
     "msedge.exe",
     "firefox.exe",
     "brave.exe",
     "opera.exe",
     "vivaldi.exe",
-}
-CHROMIUM_BROWSER_PROCESSES = {
+    "sleipnir.exe",
+)
+DEFAULT_CHROMIUM_BROWSER_PROCESSES = (
     "chrome.exe",
     "msedge.exe",
     "brave.exe",
     "opera.exe",
     "vivaldi.exe",
-}
+    "sleipnir.exe",
+)
+DEFAULT_SHIFT_ENTER_WRAP_PROCESSES = (
+    "sleipnir.exe",
+)
+BROWSER_PROCESSES = set(DEFAULT_BROWSER_PROCESSES)
+CHROMIUM_BROWSER_PROCESSES = set(DEFAULT_CHROMIUM_BROWSER_PROCESSES)
 CHROMIUM_PAGE_FOCUS_CLASSES = {
     "Chrome_RenderWidgetHostHWND",
 }
@@ -798,6 +808,30 @@ def string_tuple(value):
     return ()
 
 
+def process_name_list(value, default=()):
+    source = value if isinstance(value, list) else list(default)
+    result = []
+    seen = set()
+    for item in source:
+        name = str(item).strip().lower()
+        if not name:
+            continue
+        if not name.endswith(".exe"):
+            name = f"{name}.exe"
+        if name not in seen:
+            result.append(name)
+            seen.add(name)
+    return result
+
+
+def apply_browser_process_config(browser_processes, chromium_browser_processes):
+    global BROWSER_PROCESSES, CHROMIUM_BROWSER_PROCESSES
+    browsers = set(process_name_list(browser_processes, DEFAULT_BROWSER_PROCESSES))
+    chromium = set(process_name_list(chromium_browser_processes, DEFAULT_CHROMIUM_BROWSER_PROCESSES))
+    CHROMIUM_BROWSER_PROCESSES = chromium & browsers
+    BROWSER_PROCESSES = browsers
+
+
 REGEX_FLAG_FIELDS = (
     ("processes", "processes_regex"),
     ("window_title_keywords", "window_title_keywords_regex"),
@@ -953,7 +987,13 @@ def merge_builtin_target_definition_configs(target_definition_configs):
             existing_by_key[key] = item
     merged = []
     for item in default_builtin_target_definition_configs():
-        merged.append(existing_by_key.get(item["key"], item))
+        existing_item = existing_by_key.get(item["key"])
+        if existing_item:
+            existing_item["window_title_keywords"] = []
+            existing_item["window_title_keywords_regex"] = False
+            merged.append(existing_item)
+        else:
+            merged.append(item)
     for item in source_items:
         if not isinstance(item, dict):
             merged.append(item)
@@ -967,8 +1007,6 @@ def merge_builtin_target_definition_configs(target_definition_configs):
 def target_definition_config(target):
     window_title_keywords = []
     url_keywords = list(target.url_keywords)
-    if target.surface != "Web":
-        window_title_keywords = list(target.window_title_keywords)
     data = {
         "key": target.key,
         "label": target.label,
@@ -1068,6 +1106,9 @@ def default_config():
         "enabled": True,
         "language": LANG_JA,
         "debug_log_enabled": False,
+        "browser_processes": list(DEFAULT_BROWSER_PROCESSES),
+        "chromium_browser_processes": list(DEFAULT_CHROMIUM_BROWSER_PROCESSES),
+        "shift_enter_wrap_processes": list(DEFAULT_SHIFT_ENTER_WRAP_PROCESSES),
         "targets": {target.key: target.default_mode for target in TARGETS},
         "target_definitions": default_target_definitions_config(),
         "custom_targets": [],
@@ -1113,6 +1154,17 @@ def load_config():
     config["custom_targets"] = custom_target_configs if isinstance(custom_target_configs, list) else []
     config["enabled"] = bool(loaded.get("enabled", config["enabled"]))
     config["debug_log_enabled"] = bool(loaded.get("debug_log_enabled", config["debug_log_enabled"]))
+    config["browser_processes"] = process_name_list(loaded.get("browser_processes", config["browser_processes"]), DEFAULT_BROWSER_PROCESSES)
+    config["chromium_browser_processes"] = process_name_list(loaded.get("chromium_browser_processes", config["chromium_browser_processes"]), DEFAULT_CHROMIUM_BROWSER_PROCESSES)
+    # 旧キー shift_enter_send_on_keydown_processes からの自動移行に対応。
+    config["shift_enter_wrap_processes"] = process_name_list(
+        loaded.get(
+            "shift_enter_wrap_processes",
+            loaded.get("shift_enter_send_on_keydown_processes", config["shift_enter_wrap_processes"]),
+        ),
+        DEFAULT_SHIFT_ENTER_WRAP_PROCESSES,
+    )
+    apply_browser_process_config(config["browser_processes"], config["chromium_browser_processes"])
     DEBUG_LOG_ENABLED = config["debug_log_enabled"]
     language = loaded.get("language", config["language"])
     config["language"] = language if language in (LANG_JA, LANG_EN) else LANG_JA
@@ -1125,7 +1177,15 @@ def load_config():
                 config["targets"][key] = internal_mode_from_config_for_target(target, mode)
     for target in TARGETS:
         config["targets"][target.key] = normalize_mode_for_target(target, config["targets"].get(target.key, target.default_mode))
-    if not config_exists or target_definition_configs != loaded.get("target_definitions", []):
+    if (
+        not config_exists
+        or target_definition_configs != loaded.get("target_definitions", [])
+        or config["browser_processes"] != loaded.get("browser_processes")
+        or config["chromium_browser_processes"] != loaded.get("chromium_browser_processes")
+        or config["shift_enter_wrap_processes"] != loaded.get("shift_enter_wrap_processes")
+        or "shift_enter_send_method_by_process" in loaded
+        or "shift_enter_send_on_keydown_processes" in loaded
+    ):
         try:
             save_config(config)
         except OSError:
@@ -1597,6 +1657,16 @@ def browser_current_url():
     return url
 
 
+def browser_cached_url(max_age_seconds=30.0):
+    hwnd, _thread_id, _pid = foreground_window_info()
+    if not hwnd:
+        return ""
+    now = time.monotonic()
+    if _browser_url_cache["hwnd"] == int(hwnd) and now - _browser_url_cache["time"] <= max_age_seconds:
+        return _browser_url_cache["url"]
+    return ""
+
+
 def is_browser_url_field_focused():
     info = uia_focused_element_info()
     if not info:
@@ -1624,6 +1694,43 @@ def is_web_input_area_active():
     if foreground_process in CHROMIUM_BROWSER_PROCESSES:
         debug_log(f"web allow: chromium focus process={foreground_process} classes={focus_classes}")
     return True
+
+
+_web_input_cache = {"hwnd": 0, "time": 0.0, "value": True}
+UIA_WORKER_INTERVAL_SECONDS = 0.25
+WEB_INPUT_CACHE_MAX_AGE_SECONDS = 0.7
+
+
+def is_web_input_area_active_cached(max_age_seconds=WEB_INPUT_CACHE_MAX_AGE_SECONDS):
+    hwnd, _thread_id, _pid = foreground_window_info()
+    if (
+        hwnd
+        and _web_input_cache["hwnd"] == int(hwnd)
+        and time.monotonic() - _web_input_cache["time"] <= max_age_seconds
+    ):
+        return _web_input_cache["value"]
+    # キャッシュが無い/古い場合はUIAを使わない軽量判定のみ行う。
+    return not is_caret_in_browser_chrome()
+
+
+def uia_worker_loop():
+    while True:
+        try:
+            hwnd, _thread_id, _pid = foreground_window_info()
+            process = foreground_process_name()
+            if hwnd and process in BROWSER_PROCESSES:
+                browser_current_url()
+                value = is_web_input_area_active()
+                _web_input_cache["hwnd"] = int(hwnd)
+                _web_input_cache["time"] = time.monotonic()
+                _web_input_cache["value"] = value
+        except Exception as exc:
+            debug_log(f"uia worker error: {exc!r}")
+        time.sleep(UIA_WORKER_INTERVAL_SECONDS)
+
+
+def start_uia_worker():
+    threading.Thread(target=uia_worker_loop, name="uia-worker", daemon=True).start()
 
 
 def ime_has_composition(hwnd):
@@ -1780,7 +1887,7 @@ def processes_match(process_names, target):
 OWN_WINDOW_CLASS_PREFIX = "ItsumonoKaigyo"
 
 
-def detect_target():
+def detect_target(use_cached_browser_url=False):
     hwnd, _thread_id, _pid = foreground_window_info()
     if window_class_name(hwnd).startswith(OWN_WINDOW_CLASS_PREFIX):
         return None
@@ -1790,7 +1897,9 @@ def detect_target():
     title = foreground_title()
     browser_url = ""
     if foreground_process in BROWSER_PROCESSES:
-        browser_url = browser_current_url()
+        browser_url = browser_cached_url() if use_cached_browser_url else browser_current_url()
+        if use_cached_browser_url and not browser_url:
+            debug_log(f"browser cached url unavailable process={foreground_process}")
     for target in TARGETS:
         if target.surface == "Web":
             title_matched = keywords_match(title, target.window_title_keywords, target.window_title_keywords_regex)
@@ -1855,6 +1964,13 @@ class KeyboardHook:
         self.running = threading.Event()
         self.pending_key = None
         self.pending_action = None
+        self.pending_wrap = False
+        self.wrap_active = False
+        self.wrap_started_at = 0.0
+        self.wrap_hold_until = 0.0
+        self.wrap_timer = None
+        self.wrap_lock = threading.Lock()
+        self.wrap_recent_until = 0.0
         self.last_ime_input_time = 0.0
         self.suppress_enter_until = 0.0
 
@@ -1903,6 +2019,8 @@ class KeyboardHook:
         self.thread_id = None
         self.pending_key = None
         self.pending_action = None
+        self.pending_wrap = False
+        self._release_wrap("stop")
         self.last_ime_input_time = 0.0
         self.suppress_enter_until = 0.0
         return
@@ -1926,7 +2044,23 @@ class KeyboardHook:
         own_input = info.dwExtraInfo == SEND_EXTRA_INFO
         if own_input:
             return user32.CallNextHookEx(self.hook, n_code, w_param, l_param)
+        if self.wrap_active:
+            if info.vkCode == VK_RETURN:
+                if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
+                    self._extend_wrap()
+                    debug_log(f"enter passthrough: wrap hold injected={injected}")
+                else:
+                    debug_log(f"enter keyup passthrough: wrap hold injected={injected}")
+                return user32.CallNextHookEx(self.hook, n_code, w_param, l_param)
+            if (
+                w_param in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                and info.vkCode not in (VK_SHIFT, VK_CONTROL, VK_MENU)
+            ):
+                self._release_wrap("other keydown")
         if info.vkCode == VK_RETURN and self.suppress_enter_until > time.monotonic():
+            if injected and is_key_down(VK_SHIFT):
+                debug_log("enter allow: injected shift-enter during conversion window")
+                return user32.CallNextHookEx(self.hook, n_code, w_param, l_param)
             debug_log(f"enter suppressed: conversion window injected={injected}")
             return 1
         if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
@@ -1938,6 +2072,10 @@ class KeyboardHook:
                     debug_log("enter keydown suppressed: pending")
                 return 1
             if self._should_convert(info.vkCode):
+                if self.pending_wrap:
+                    self._begin_wrap()
+                    debug_log(f"enter wrap: shift held, enter passes injected={injected}")
+                    return user32.CallNextHookEx(self.hook, n_code, w_param, l_param)
                 if info.vkCode == VK_RETURN:
                     debug_log(f"enter keydown convert action={self.pending_action}")
                 self.pending_key = info.vkCode
@@ -1947,9 +2085,63 @@ class KeyboardHook:
             self.suppress_enter_until = time.monotonic() + ENTER_SUPPRESS_AFTER_CONVERSION_SECONDS
             if info.vkCode == VK_RETURN:
                 debug_log(f"enter keyup send action={action}")
-            threading.Timer(0.01, self._send_conversion, args=(action,)).start()
+            threading.Timer(0.01, self._send_conversion, args=(action, True)).start()
             return 1
         return user32.CallNextHookEx(self.hook, n_code, w_param, l_param)
+
+    def _begin_wrap(self):
+        with self.wrap_lock:
+            first = not self.wrap_active
+            now = time.monotonic()
+            if first:
+                self.wrap_active = True
+                self.wrap_started_at = now
+            self.wrap_hold_until = now + WRAP_SHIFT_HOLD_SECONDS
+        if first:
+            send_key(VK_SHIFT)
+            debug_log("wrap shift down")
+        self._schedule_wrap_check(WRAP_SHIFT_HOLD_SECONDS)
+
+    def _extend_wrap(self):
+        with self.wrap_lock:
+            if not self.wrap_active:
+                return
+            self.wrap_hold_until = time.monotonic() + WRAP_SHIFT_HOLD_SECONDS
+
+    def _schedule_wrap_check(self, delay):
+        with self.wrap_lock:
+            if self.wrap_timer:
+                self.wrap_timer.cancel()
+            timer = threading.Timer(max(delay, 0.01), self._wrap_check)
+            timer.daemon = True
+            self.wrap_timer = timer
+        timer.start()
+
+    def _wrap_check(self):
+        with self.wrap_lock:
+            if not self.wrap_active:
+                return
+            now = time.monotonic()
+            deadline = min(self.wrap_hold_until, self.wrap_started_at + WRAP_SHIFT_MAX_HOLD_SECONDS)
+            remaining = deadline - now
+        if remaining <= 0:
+            self._release_wrap("timeout")
+        else:
+            self._schedule_wrap_check(remaining)
+
+    def _release_wrap(self, reason):
+        with self.wrap_lock:
+            if not self.wrap_active:
+                return
+            self.wrap_active = False
+            self.wrap_started_at = 0.0
+            self.wrap_hold_until = 0.0
+            self.wrap_recent_until = time.monotonic() + WRAP_RESIDUAL_SHIFT_SECONDS
+            if self.wrap_timer:
+                self.wrap_timer.cancel()
+                self.wrap_timer = None
+        send_key(VK_SHIFT, key_up=True)
+        debug_log(f"wrap shift up ({reason})")
 
     def _note_possible_ime_input(self, vk_code):
         if vk_code in (VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU, VK_ESCAPE):
@@ -1982,11 +2174,11 @@ class KeyboardHook:
         if not config.get("enabled", True):
             debug_log("enter skip: disabled")
             return False
-        target = detect_target()
+        target = detect_target(use_cached_browser_url=True)
         if not target:
             debug_log(f"enter skip: no target title={foreground_title()!r} process={foreground_process_name()!r}")
             return False
-        if target.surface == "Web" and not is_web_input_area_active():
+        if target.surface == "Web" and not is_web_input_area_active_cached():
             debug_log(f"enter skip: web non-input target={target.label}")
             return False
         if is_ime_composing():
@@ -1996,18 +2188,31 @@ class KeyboardHook:
             self.last_ime_input_time = 0.0
             debug_log(f"enter skip: ime open recent input target={target.label}")
             return False
+        process_name = foreground_process_name()
+        wrap = process_name in set(process_name_list(config.get("shift_enter_wrap_processes", [])))
         mode = normalize_mode_for_target(target, config["targets"].get(target.key, target.default_mode))
         if mode == MODE_OFF or not trigger_matches(mode):
-            debug_log(f"enter skip: mode/trigger target={target.label} mode={mode} shift={is_key_down(VK_SHIFT)} ctrl={is_key_down(VK_CONTROL)} alt={is_key_down(VK_MENU)}")
-            return False
+            residual_shift = (
+                mode == MODE_ENTER
+                and wrap
+                and is_key_down(VK_SHIFT)
+                and not is_key_down(VK_CONTROL)
+                and not is_key_down(VK_MENU)
+                and time.monotonic() < self.wrap_recent_until
+            )
+            if not residual_shift:
+                debug_log(f"enter skip: mode/trigger target={target.label} mode={mode} shift={is_key_down(VK_SHIFT)} ctrl={is_key_down(VK_CONTROL)} alt={is_key_down(VK_MENU)}")
+                return False
+            debug_log(f"enter convert: wrap residual shift target={target.label}")
         if mode == MODE_SHIFT_ENTER and target.action == ACTION_SHIFT_ENTER:
             debug_log(f"enter skip: shift-enter already native target={target.label}")
             return False
         self.pending_action = target.action
-        debug_log(f"enter convert: target={target.label} mode={mode} action={target.action}")
+        self.pending_wrap = wrap
+        debug_log(f"enter convert: target={target.label} mode={mode} action={target.action} process={process_name} wrap={wrap}")
         return True
 
-    def _send_conversion(self, action):
+    def _send_conversion(self, action, clear_pending=True):
         try:
             if action:
                 ok = send_line_break(action)
@@ -2015,8 +2220,10 @@ class KeyboardHook:
                 if not ok:
                     self.event_queue.put(("error", "改行の送信に失敗しました。"))
         finally:
-            self.pending_key = None
-            self.pending_action = None
+            if clear_pending:
+                self.pending_key = None
+                self.pending_action = None
+                self.pending_wrap = False
 
 
 def hiword(value):
@@ -3111,12 +3318,12 @@ class Win32App:
             user32.SetWindowTextW(self.controls["status_target"], "Active: Paused" if is_en else "アクティブ: 一時停止中")
             user32.SetWindowTextW(self.controls["status_mode"], "Status: Off" if is_en else "ステータス: オフ")
             return
-        target = detect_target()
+        target = detect_target(use_cached_browser_url=True)
         if not target:
             user32.SetWindowTextW(self.controls["status_target"], "Active: No target" if is_en else "アクティブ: 対象外")
             user32.SetWindowTextW(self.controls["status_mode"], "")
             return
-        if target.surface == "Web" and not is_web_input_area_active():
+        if target.surface == "Web" and not is_web_input_area_active_cached():
             user32.SetWindowTextW(self.controls["status_target"], "Active: No target" if is_en else "アクティブ: 対象外")
             user32.SetWindowTextW(self.controls["status_mode"], "")
             return
@@ -3145,6 +3352,7 @@ def main():
         kernel32.CloseHandle(mutex)
         return 0
     try:
+        start_uia_worker()
         app = Win32App(start_minimized=START_MINIMIZED_ARG in sys.argv[1:])
         return app.run()
     finally:
@@ -3153,4 +3361,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-# sync

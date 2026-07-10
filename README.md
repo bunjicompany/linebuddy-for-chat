@@ -39,6 +39,8 @@ https://github.com/bunjicompany/linebuddy-for-chat/releases
 - 日本語IME変換中のEnterは、文字確定を優先します。
 - タイトル、URL、プロセス名のキーワードで、ユーザー用のカスタム対象を追加できます。
 - タイトル、URL、プロセス名の判定条件は、項目ごとに正規表現モードに切り替えられます。
+- Web対象として扱うブラウザのプロセス名を設定JSONから追加・変更できます。
+- Sleipnirのようにキー入力を再送出するブラウザにも、Shiftラップ方式で安定して対応します。
 - タスクトレイから一時停止、設定、言語切替、Windows起動時登録を操作できます。
 
 ## 初期プリセット
@@ -69,6 +71,8 @@ https://github.com/bunjicompany/linebuddy-for-chat/releases
 
 主要サービスは初期プリセットとして用意されています。
 対象外のサービスや、画面構成・タブタイトル・URL・プロセス名が変わったサービスは、カスタム画面から新しい対象として追加できます。
+
+初期プリセットは誤判定を避けるため、タイトルキーワードを使わない設定で保存されます。Web版は主にURL、App版は主にプロセス名で判定します。
 
 カスタム画面で編集できるのは、ユーザーが追加したカスタム項目です。
 既存のプリセット項目は、カスタム画面からは編集できません。
@@ -118,6 +122,57 @@ exe版では、設定ファイルは `ItsumonoKaigyoForChat.exe` と同じフォ
 初期プリセット項目を変更したい場合は、アプリを終了したあと、設定JSONファイルを直接編集してください。
 
 各対象の `window_title_keywords_regex` / `url_keywords_regex` / `processes_regex`（初期値はすべて `false`）を `true` にすると、対応する値が正規表現として解釈されます。
+
+### 対応ブラウザを追加・変更する
+
+Web対象として判定するブラウザは、設定JSONファイルの `browser_processes` で変更できます。
+
+初期状態では、次のブラウザをWeb対象として扱います。
+
+- Google Chrome
+- Microsoft Edge
+- Mozilla Firefox
+- Brave
+- Opera
+- Vivaldi
+- Fenrir Sleipnir
+
+```json
+"browser_processes": [
+  "chrome.exe",
+  "msedge.exe",
+  "firefox.exe",
+  "brave.exe",
+  "opera.exe",
+  "vivaldi.exe",
+  "sleipnir.exe"
+]
+```
+
+`chromium_browser_processes` は、Chrome系ブラウザとしてアドレスバー判定を行うプロセス名の一覧です。追加したブラウザがChromium系で、アドレスバー入力中の誤変換を避けたい場合は、こちらにも同じプロセス名を追加してください。
+
+```json
+"chromium_browser_processes": [
+  "chrome.exe",
+  "msedge.exe",
+  "brave.exe",
+  "opera.exe",
+  "vivaldi.exe",
+  "sleipnir.exe"
+]
+```
+
+`shift_enter_wrap_processes` では、「Shiftラップ方式」で変換するプロセスを指定できます。この方式では、Enterを押した時点でShiftキーを押し込み、Enterキー自体はそのまま通します（合成のShift+Enterは送りません）。Enterを離した後、少し遅れてShiftを解放します。Sleipnirのようにキー入力を取り込んで再送出するブラウザでは、合成したShift+Enterが再送出のタイミング次第で失われることがあるため、この方式を使います。初期値は `sleipnir.exe` です。
+
+```json
+"shift_enter_wrap_processes": [
+  "sleipnir.exe"
+]
+```
+
+旧設定キー `shift_enter_send_on_keydown_processes` は起動時に `shift_enter_wrap_processes` へ自動移行されます。旧キー `shift_enter_send_method_by_process` は廃止され、無視されます。
+
+プロセス名は大文字小文字を区別しません。`.exe` を省略しても、保存時に `.exe` 付きへ正規化されます。
 
 編集前に設定ファイルをバックアップしておくことをおすすめします。
 
