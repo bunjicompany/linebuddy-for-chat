@@ -1467,7 +1467,6 @@ def foreground_focus_class_names():
 CLSID_CUIAutomation = guid(0xFF48DBA4, 0x60EF, 0x4201, [0xAA, 0x87, 0x54, 0x10, 0x3E, 0xEF, 0x59, 0x4E])
 IID_IUIAutomation = guid(0x30CBE57D, 0xD9D0, 0x452A, [0xAB, 0x13, 0x7A, 0xC5, 0xAC, 0x48, 0x25, 0xEE])
 _uia_automation = ctypes.c_void_p()
-_uia_initialized = False
 _browser_url_cache = {"hwnd": 0, "time": 0.0, "url": ""}
 
 
@@ -1488,11 +1487,18 @@ def bstr_to_text(bstr):
         oleaut32.SysFreeString(bstr)
 
 
+UIA_RETRY_SECONDS = 5.0
+_uia_last_attempt = 0.0
+
+
 def uia_automation():
-    global _uia_initialized, _uia_automation
-    if _uia_initialized:
-        return _uia_automation if _uia_automation.value else None
-    _uia_initialized = True
+    global _uia_automation, _uia_last_attempt
+    if _uia_automation.value:
+        return _uia_automation
+    now = time.monotonic()
+    if now - _uia_last_attempt < UIA_RETRY_SECONDS:
+        return None
+    _uia_last_attempt = now
     ole32.CoInitialize(None)
     ptr = ctypes.c_void_p()
     hr = ole32.CoCreateInstance(
@@ -1506,7 +1512,19 @@ def uia_automation():
         debug_log(f"uia init failed hr={hr}")
         return None
     _uia_automation = ptr
+    debug_log("uia init ok")
     return _uia_automation
+
+
+def uia_reset():
+    global _uia_automation
+    ptr = _uia_automation
+    _uia_automation = ctypes.c_void_p()
+    if ptr.value:
+        try:
+            com_release(ptr)
+        except Exception as exc:
+            debug_log(f"uia reset release failed: {exc!r}")
 
 
 def uia_focused_element_info():
@@ -1713,17 +1731,34 @@ def is_web_input_area_active_cached(max_age_seconds=WEB_INPUT_CACHE_MAX_AGE_SECO
     return not is_caret_in_browser_chrome()
 
 
+UIA_REINIT_AFTER_EMPTY_SECONDS = 5.0
+
+
 def uia_worker_loop():
+    empty_url_since = 0.0
     while True:
         try:
             hwnd, _thread_id, _pid = foreground_window_info()
             process = foreground_process_name()
             if hwnd and process in BROWSER_PROCESSES:
-                browser_current_url()
+                url = browser_current_url()
+                now = time.monotonic()
+                if url:
+                    empty_url_since = 0.0
+                elif not empty_url_since:
+                    empty_url_since = now
+                elif now - empty_url_since >= UIA_REINIT_AFTER_EMPTY_SECONDS:
+                    # ブラウザ前面なのにURLが取れない状態が続く場合、
+                    # UIAが応答不能になっている可能性があるので作り直す。
+                    debug_log(f"uia reinit: url empty streak process={process}")
+                    uia_reset()
+                    empty_url_since = now
                 value = is_web_input_area_active()
                 _web_input_cache["hwnd"] = int(hwnd)
                 _web_input_cache["time"] = time.monotonic()
                 _web_input_cache["value"] = value
+            else:
+                empty_url_since = 0.0
         except Exception as exc:
             debug_log(f"uia worker error: {exc!r}")
         time.sleep(UIA_WORKER_INTERVAL_SECONDS)
