@@ -2015,15 +2015,6 @@ class KeyboardHook:
         self.running.set()
         self.thread = threading.Thread(target=self._run, name="keyboard-hook", daemon=True)
         self.thread.start()
-        return
-        if self.hook:
-            return
-        self.hook = user32.SetWindowsHookExW(WH_KEYBOARD_LL, self.callback, None, 0)
-        if not self.hook:
-            debug_log("hook_start failed")
-            self.event_queue.put(("error", "キーボードフックの開始に失敗しました。"))
-            return
-        debug_log("hook_start ok main_thread")
 
     def _run(self):
         self.thread_id = kernel32.GetCurrentThreadId()
@@ -2058,11 +2049,6 @@ class KeyboardHook:
         self._release_wrap("stop")
         self.last_ime_input_time = 0.0
         self.suppress_enter_until = 0.0
-        return
-        if self.hook:
-            user32.UnhookWindowsHookEx(self.hook)
-            self.hook = None
-            debug_log("hook_stop")
 
     def _callback(self, n_code, w_param, l_param):
         try:

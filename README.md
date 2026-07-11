@@ -201,9 +201,20 @@ python -m venv .venv
 
 ビルド後、`dist\ItsumonoKaigyoForChat.exe` が生成されます。
 
+### テスト
+
+対象判定・設定移行などの純粋ロジックのテストです。ビルド前の実行をおすすめします。
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest test_itsumono_kaigyo -v
+```
+
+キーボードフックやIME、ブラウザ連携などOSと結合した挙動は自動テストの対象外のため、対象アプリでの手動確認も併用してください。
+
 ## 主なファイル
 
 - `itsumono_kaigyo.py`: アプリ本体
+- `test_itsumono_kaigyo.py`: ロジックのテスト
 - `ItsumonoKaigyo.spec`: PyInstaller設定
 - `app_icon.ico`: アプリアイコン
 - `ItsumonoKaigyoForChat_settings.json`: 設定ファイル
