@@ -115,6 +115,82 @@ class LooksLikeBrowserUrlTests(unittest.TestCase):
         self.assertFalse(app.looks_like_browser_url(""))
 
 
+class WrapStateTests(unittest.TestCase):
+    """Shiftラップ方式の状態遷移。時刻を明示的に与えて検証する。"""
+
+    def setUp(self):
+        self.state = app.WrapState()
+
+    def test_begin_returns_true_only_on_first_call(self):
+        self.assertTrue(self.state.begin(now=0.0))
+        self.assertFalse(self.state.begin(now=0.1))
+        self.assertTrue(self.state.active)
+
+    def test_single_press_releases_after_hold(self):
+        self.state.begin(now=0.0)
+        self.assertGreater(self.state.remaining(now=0.1), 0)
+        self.assertLessEqual(
+            self.state.remaining(now=app.WRAP_SHIFT_HOLD_SECONDS + 0.01), 0
+        )
+
+    def test_keydown_extends_hold(self):
+        self.state.begin(now=0.0)
+        self.state.extend(now=0.2)
+        self.assertGreater(self.state.remaining(now=0.4), 0)
+
+    def test_keyup_shortens_hold_to_linger(self):
+        self.state.begin(now=0.0)
+        self.state.shorten(now=0.05)
+        linger_deadline = 0.05 + app.WRAP_SHIFT_KEYUP_LINGER_SECONDS
+        self.assertGreater(self.state.remaining(now=linger_deadline - 0.01), 0)
+        self.assertLessEqual(self.state.remaining(now=linger_deadline + 0.01), 0)
+
+    def test_shorten_never_lengthens_hold(self):
+        self.state.begin(now=0.0)
+        self.state.shorten(now=0.0, linger_seconds=10.0)
+        self.assertLessEqual(
+            self.state.remaining(now=app.WRAP_SHIFT_HOLD_SECONDS + 0.01), 0
+        )
+
+    def test_max_hold_caps_continuous_extends(self):
+        self.state.begin(now=0.0)
+        now = 0.0
+        while now < app.WRAP_SHIFT_MAX_HOLD_SECONDS + 0.5:
+            self.state.extend(now=now)
+            now += 0.1
+        self.assertLessEqual(
+            self.state.remaining(now=app.WRAP_SHIFT_MAX_HOLD_SECONDS + 0.01), 0
+        )
+
+    def test_release_returns_true_once_and_sets_residual_window(self):
+        self.state.begin(now=0.0)
+        self.assertTrue(self.state.release(now=1.0))
+        self.assertFalse(self.state.release(now=1.0))
+        self.assertFalse(self.state.active)
+        self.assertTrue(
+            self.state.residual_shift_active(
+                now=1.0 + app.WRAP_RESIDUAL_SHIFT_SECONDS - 0.01
+            )
+        )
+        self.assertFalse(
+            self.state.residual_shift_active(
+                now=1.0 + app.WRAP_RESIDUAL_SHIFT_SECONDS + 0.01
+            )
+        )
+
+    def test_can_begin_again_after_release(self):
+        self.state.begin(now=0.0)
+        self.state.release(now=1.0)
+        self.assertTrue(self.state.begin(now=1.1))
+        self.assertGreater(self.state.remaining(now=1.2), 0)
+
+    def test_inactive_state_is_inert(self):
+        self.state.extend(now=0.0)
+        self.state.shorten(now=0.0)
+        self.assertEqual(self.state.remaining(now=0.0), 0.0)
+        self.assertFalse(self.state.release(now=0.0))
+
+
 class ConfigMigrationTests(unittest.TestCase):
     def _load_with(self, data):
         with tempfile.TemporaryDirectory() as tmp:

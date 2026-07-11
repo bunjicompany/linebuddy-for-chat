@@ -1997,6 +1997,63 @@ def trigger_matches(mode):
     return False
 
 
+class WrapState:
+    """Shiftラップ方式（Shiftを押し込みEnterを素通しする変換）の状態機械。
+
+    Win32やスレッド、実時間に依存しない純粋ロジックとして分離してあり、
+    test_itsumono_kaigyo.py から時刻を与えて遷移を検証できる。
+    排他制御は呼び出し側（KeyboardHook.wrap_lock）が行う。
+    """
+
+    def __init__(self):
+        self.active = False
+        self.started_at = 0.0
+        self.hold_until = 0.0
+        self.recent_until = 0.0
+
+    def begin(self, now):
+        """ラップ開始。Shift押下が必要なとき（新規開始時）Trueを返す。"""
+        first = not self.active
+        if first:
+            self.active = True
+            self.started_at = now
+        self.hold_until = now + WRAP_SHIFT_HOLD_SECONDS
+        return first
+
+    def extend(self, now):
+        """Enter keydown（リピート・再送出）で保持期限を延長する。"""
+        if not self.active:
+            return
+        self.hold_until = now + WRAP_SHIFT_HOLD_SECONDS
+
+    def shorten(self, now, linger_seconds=WRAP_SHIFT_KEYUP_LINGER_SECONDS):
+        """Enter keyup後、再送出の残りを拾う最小限まで保持期限を縮める。"""
+        if not self.active:
+            return
+        self.hold_until = min(self.hold_until, now + linger_seconds)
+
+    def remaining(self, now):
+        """解放までの残り秒数。0以下なら解放すべき。最大保持時間の上限も考慮する。"""
+        if not self.active:
+            return 0.0
+        deadline = min(self.hold_until, self.started_at + WRAP_SHIFT_MAX_HOLD_SECONDS)
+        return deadline - now
+
+    def release(self, now):
+        """ラップ解放。Shift解放が必要なとき（実際に解放したとき）Trueを返す。"""
+        if not self.active:
+            return False
+        self.active = False
+        self.started_at = 0.0
+        self.hold_until = 0.0
+        self.recent_until = now + WRAP_RESIDUAL_SHIFT_SECONDS
+        return True
+
+    def residual_shift_active(self, now):
+        """解放直後の残留Shift（再送出遅延分）を自分のものとして扱う期間か。"""
+        return now < self.recent_until
+
+
 class KeyboardHook:
     def __init__(self, config_provider, event_queue):
         self.config_provider = config_provider
@@ -2009,12 +2066,9 @@ class KeyboardHook:
         self.pending_key = None
         self.pending_action = None
         self.pending_wrap = False
-        self.wrap_active = False
-        self.wrap_started_at = 0.0
-        self.wrap_hold_until = 0.0
+        self.wrap_state = WrapState()
         self.wrap_timer = None
         self.wrap_lock = threading.Lock()
-        self.wrap_recent_until = 0.0
         self.last_ime_input_time = 0.0
         self.suppress_enter_until = 0.0
 
@@ -2074,7 +2128,7 @@ class KeyboardHook:
         own_input = info.dwExtraInfo == SEND_EXTRA_INFO
         if own_input:
             return user32.CallNextHookEx(self.hook, n_code, w_param, l_param)
-        if self.wrap_active:
+        if self.wrap_state.active:
             if info.vkCode == VK_RETURN:
                 if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
                     self._extend_wrap()
@@ -2123,12 +2177,7 @@ class KeyboardHook:
 
     def _begin_wrap(self):
         with self.wrap_lock:
-            first = not self.wrap_active
-            now = time.monotonic()
-            if first:
-                self.wrap_active = True
-                self.wrap_started_at = now
-            self.wrap_hold_until = now + WRAP_SHIFT_HOLD_SECONDS
+            first = self.wrap_state.begin(time.monotonic())
         if first:
             send_key(VK_SHIFT)
             debug_log("wrap shift down")
@@ -2136,15 +2185,11 @@ class KeyboardHook:
 
     def _extend_wrap(self):
         with self.wrap_lock:
-            if not self.wrap_active:
-                return
-            self.wrap_hold_until = time.monotonic() + WRAP_SHIFT_HOLD_SECONDS
+            self.wrap_state.extend(time.monotonic())
 
     def _shorten_wrap(self, linger_seconds):
         with self.wrap_lock:
-            if not self.wrap_active:
-                return
-            self.wrap_hold_until = min(self.wrap_hold_until, time.monotonic() + linger_seconds)
+            self.wrap_state.shorten(time.monotonic(), linger_seconds)
         self._schedule_wrap_check(linger_seconds)
 
     def _schedule_wrap_check(self, delay):
@@ -2158,11 +2203,9 @@ class KeyboardHook:
 
     def _wrap_check(self):
         with self.wrap_lock:
-            if not self.wrap_active:
+            if not self.wrap_state.active:
                 return
-            now = time.monotonic()
-            deadline = min(self.wrap_hold_until, self.wrap_started_at + WRAP_SHIFT_MAX_HOLD_SECONDS)
-            remaining = deadline - now
+            remaining = self.wrap_state.remaining(time.monotonic())
         if remaining <= 0:
             self._release_wrap("timeout")
         else:
@@ -2170,15 +2213,12 @@ class KeyboardHook:
 
     def _release_wrap(self, reason):
         with self.wrap_lock:
-            if not self.wrap_active:
-                return
-            self.wrap_active = False
-            self.wrap_started_at = 0.0
-            self.wrap_hold_until = 0.0
-            self.wrap_recent_until = time.monotonic() + WRAP_RESIDUAL_SHIFT_SECONDS
-            if self.wrap_timer:
+            released = self.wrap_state.release(time.monotonic())
+            if released and self.wrap_timer:
                 self.wrap_timer.cancel()
                 self.wrap_timer = None
+        if not released:
+            return
         send_key(VK_SHIFT, key_up=True)
         debug_log(f"wrap shift up ({reason})")
 
@@ -2237,7 +2277,7 @@ class KeyboardHook:
                 and is_key_down(VK_SHIFT)
                 and not is_key_down(VK_CONTROL)
                 and not is_key_down(VK_MENU)
-                and time.monotonic() < self.wrap_recent_until
+                and self.wrap_state.residual_shift_active(time.monotonic())
             )
             if not residual_shift:
                 debug_log(f"enter skip: mode/trigger target={target.label} mode={mode} shift={is_key_down(VK_SHIFT)} ctrl={is_key_down(VK_CONTROL)} alt={is_key_down(VK_MENU)}")
