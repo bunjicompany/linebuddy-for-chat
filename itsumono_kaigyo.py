@@ -85,6 +85,7 @@ IMM_ERROR_GENERAL = -2
 IME_RECENT_INPUT_SECONDS = 8.0
 ENTER_SUPPRESS_AFTER_CONVERSION_SECONDS = 0.18
 WRAP_SHIFT_HOLD_SECONDS = 0.3
+WRAP_SHIFT_KEYUP_LINGER_SECONDS = 0.12
 WRAP_SHIFT_MAX_HOLD_SECONDS = 2.0
 WRAP_RESIDUAL_SHIFT_SECONDS = 0.5
 SEND_EXTRA_INFO = 0x49544B47
@@ -1115,18 +1116,24 @@ def default_config():
     }
 
 
+_debug_log_lock = threading.Lock()
+
+
 def debug_log(message):
     if not DEBUG_LOG_ENABLED:
         return
     try:
-        if DEBUG_LOG_PATH.exists() and DEBUG_LOG_PATH.stat().st_size > DEBUG_LOG_MAX_BYTES:
-            backup_path = DEBUG_LOG_PATH.with_name("debug.log.1")
-            if backup_path.exists():
-                backup_path.unlink()
-            DEBUG_LOG_PATH.replace(backup_path)
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        with DEBUG_LOG_PATH.open("a", encoding="utf-8") as file:
-            file.write(f"{timestamp} {message}\n")
+        # フックスレッド・UIAワーカー・タイマー・GUIから同時に呼ばれるため、
+        # ローテーションと追記をロックで直列化する（欠落・破損防止）。
+        with _debug_log_lock:
+            if DEBUG_LOG_PATH.exists() and DEBUG_LOG_PATH.stat().st_size > DEBUG_LOG_MAX_BYTES:
+                backup_path = DEBUG_LOG_PATH.with_name("debug.log.1")
+                if backup_path.exists():
+                    backup_path.unlink()
+                DEBUG_LOG_PATH.replace(backup_path)
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            with DEBUG_LOG_PATH.open("a", encoding="utf-8") as file:
+                file.write(f"{timestamp} {message}\n")
     except OSError:
         pass
 
@@ -1667,9 +1674,10 @@ def browser_current_url():
             com_release(condition)
         if root.value:
             com_release(root)
-        _browser_url_cache["hwnd"] = int(hwnd)
-        _browser_url_cache["time"] = now
+        # 別スレッドから読まれるため、判定キーのhwndを最後に書く。
         _browser_url_cache["url"] = url
+        _browser_url_cache["time"] = now
+        _browser_url_cache["hwnd"] = int(hwnd)
         if url:
             debug_log(f"browser url={url!r}")
     return url
@@ -1754,9 +1762,10 @@ def uia_worker_loop():
                     uia_reset()
                     empty_url_since = now
                 value = is_web_input_area_active()
-                _web_input_cache["hwnd"] = int(hwnd)
-                _web_input_cache["time"] = time.monotonic()
+                # 別スレッドから読まれるため、判定キーのhwndを最後に書く。
                 _web_input_cache["value"] = value
+                _web_input_cache["time"] = time.monotonic()
+                _web_input_cache["hwnd"] = int(hwnd)
             else:
                 empty_url_since = 0.0
         except Exception as exc:
@@ -2071,6 +2080,8 @@ class KeyboardHook:
                     self._extend_wrap()
                     debug_log(f"enter passthrough: wrap hold injected={injected}")
                 else:
+                    # keyup後は再送出の残りを拾う最小限だけ保持し、早めにShiftを解放する。
+                    self._shorten_wrap(WRAP_SHIFT_KEYUP_LINGER_SECONDS)
                     debug_log(f"enter keyup passthrough: wrap hold injected={injected}")
                 return user32.CallNextHookEx(self.hook, n_code, w_param, l_param)
             if (
@@ -2128,6 +2139,13 @@ class KeyboardHook:
             if not self.wrap_active:
                 return
             self.wrap_hold_until = time.monotonic() + WRAP_SHIFT_HOLD_SECONDS
+
+    def _shorten_wrap(self, linger_seconds):
+        with self.wrap_lock:
+            if not self.wrap_active:
+                return
+            self.wrap_hold_until = min(self.wrap_hold_until, time.monotonic() + linger_seconds)
+        self._schedule_wrap_check(linger_seconds)
 
     def _schedule_wrap_check(self, delay):
         with self.wrap_lock:
