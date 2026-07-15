@@ -237,6 +237,36 @@ class ConfigMigrationTests(unittest.TestCase):
         config = self._load_with({"targets": {"chatgpt_web": "off"}})
         self.assertEqual(config["targets"]["chatgpt_web"], app.MODE_OFF)
 
+    def test_existing_copilot_urls_are_supplemented(self):
+        config = self._load_with({
+            "target_definitions": [{
+                "key": "copilot_web",
+                "label": "Copilot Web",
+                "category": "生成AI",
+                "surface": "Web",
+                "action": "shift_enter",
+                "window_title_keywords": [],
+                "default_mode": "on",
+                "url_keywords": ["copilot.microsoft.com", "custom.example"],
+                "window_title_keywords_regex": False,
+                "url_keywords_regex": False,
+            }],
+        })
+        definitions = {
+            item["key"]: item
+            for item in config["target_definitions"]
+            if isinstance(item, dict)
+        }
+        self.assertEqual(
+            definitions["copilot_web"]["url_keywords"],
+            [
+                "copilot.microsoft.com",
+                "custom.example",
+                "m365copilot.com",
+                "m365.cloud.microsoft/chat",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

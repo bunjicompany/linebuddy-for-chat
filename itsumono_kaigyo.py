@@ -752,7 +752,7 @@ BUILTIN_TARGETS = [
     TargetDefinition("claude_web", "Claude Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("claude",), url_keywords=("claude.ai",)),
     TargetDefinition("claude_app", "Claude App", "生成AI", "App", ACTION_SHIFT_ENTER, MODE_ENTER, processes=("claude.exe",), window_title_keywords=("claude",)),
     TargetDefinition("gemini_web", "Gemini Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("gemini",), url_keywords=("gemini.google.com",)),
-    TargetDefinition("copilot_web", "Copilot Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("copilot",), url_keywords=("copilot.microsoft.com",)),
+    TargetDefinition("copilot_web", "Copilot Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("copilot",), url_keywords=("copilot.microsoft.com", "m365copilot.com", "m365.cloud.microsoft/chat")),
     TargetDefinition("copilot_app", "Copilot App", "生成AI", "App", ACTION_SHIFT_ENTER, MODE_ENTER, processes=("copilot.exe",), window_title_keywords=("copilot",)),
     TargetDefinition("perplexity_web", "Perplexity Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("perplexity",), url_keywords=("perplexity.ai",)),
     TargetDefinition("grok_web", "Grok Web", "生成AI", "Web", ACTION_SHIFT_ENTER, MODE_ENTER, window_title_keywords=("grok",), url_keywords=("grok.com", "x.com/i/grok")),
@@ -974,6 +974,17 @@ def default_builtin_target_definition_configs():
     ]
 
 
+def merge_missing_keywords(existing_values, default_values):
+    """既存の設定を残しつつ、内蔵プリセットの新しいキーワードだけを追記する。"""
+    merged = list(string_tuple(existing_values))
+    seen = {value.casefold() for value in merged}
+    for value in string_tuple(default_values):
+        if value.casefold() not in seen:
+            merged.append(value)
+            seen.add(value.casefold())
+    return merged
+
+
 def merge_builtin_target_definition_configs(target_definition_configs):
     if not isinstance(target_definition_configs, list):
         target_definition_configs = []
@@ -992,6 +1003,12 @@ def merge_builtin_target_definition_configs(target_definition_configs):
         if existing_item:
             existing_item["window_title_keywords"] = []
             existing_item["window_title_keywords_regex"] = False
+            # 既存JSONにも、新しく追加したWeb判定URLを補完する。
+            if item.get("url_keywords"):
+                existing_item["url_keywords"] = merge_missing_keywords(
+                    existing_item.get("url_keywords", []),
+                    item["url_keywords"],
+                )
             merged.append(existing_item)
         else:
             merged.append(item)
