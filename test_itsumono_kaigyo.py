@@ -10,6 +10,7 @@ Windows上で実行してください（本体モジュールがWin32 APIを読�
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import itsumono_kaigyo as app
@@ -189,6 +190,86 @@ class WrapStateTests(unittest.TestCase):
         self.state.shorten(now=0.0)
         self.assertEqual(self.state.remaining(now=0.0), 0.0)
         self.assertFalse(self.state.release(now=0.0))
+
+
+class KeyboardHookImeTests(unittest.TestCase):
+    def test_recent_ime_input_skips_before_composition_scan(self):
+        target = next(item for item in app.TARGETS if item.key == "chatgpt_app")
+        hook = app.KeyboardHook(app.default_config, None)
+        hook.last_ime_input_time = app.time.monotonic()
+
+        with (
+            mock.patch.object(app, "detect_target", return_value=target),
+            mock.patch.object(app, "is_foreground_ime_open", return_value=True),
+            mock.patch.object(app, "is_ime_composing") as composition,
+        ):
+            self.assertFalse(hook._should_convert(app.VK_RETURN))
+
+        composition.assert_not_called()
+
+class DetectTargetTests(unittest.TestCase):
+    def test_direct_app_process_skips_child_window_enumeration(self):
+        pid = app.wintypes.DWORD(1234)
+        with (
+            mock.patch.object(app, "foreground_window_info", return_value=(100, 1, pid)),
+            mock.patch.object(app, "window_class_name", return_value="Chrome_WidgetWin_1"),
+            mock.patch.object(app, "process_name_from_pid", return_value="chatgpt.exe"),
+            mock.patch.object(app, "foreground_title") as foreground_title,
+            mock.patch.object(app, "process_names_for_window_tree") as process_tree,
+        ):
+            target = app.detect_target(use_cached_browser_url=True)
+
+        self.assertEqual(target.key, "chatgpt_app")
+        foreground_title.assert_not_called()
+        process_tree.assert_not_called()
+
+
+class ImeStateTests(unittest.TestCase):
+    def setUp(self):
+        self.ime_cache = app._ime_open_cache.copy()
+
+    def tearDown(self):
+        app._ime_open_cache.clear()
+        app._ime_open_cache.update(self.ime_cache)
+
+    def test_open_check_uses_cached_default_ime_status_without_sync_call(self):
+        pid = app.wintypes.DWORD(1234)
+        app._ime_open_cache.update({"key": (1, 1234), "time": 100.0, "value": True})
+        with (
+            mock.patch.object(app, "foreground_window_info", return_value=(100, 1, pid)),
+            mock.patch.object(app, "foreground_focus_hwnds", return_value=(100,)),
+            mock.patch.object(app, "ime_is_open", return_value=False),
+            mock.patch.object(app, "default_ime_window_status") as default_status,
+        ):
+            self.assertTrue(app.is_foreground_ime_open())
+
+        default_status.assert_not_called()
+
+    def test_composition_check_does_not_scan_desktop_windows(self):
+        pid = app.wintypes.DWORD(1234)
+        with (
+            mock.patch.object(app, "foreground_window_info", return_value=(100, 1, pid)),
+            mock.patch.object(app, "foreground_focus_hwnds", return_value=(100,)),
+            mock.patch.object(app, "ime_has_composition", return_value=False),
+            mock.patch.object(app, "cached_has_ime_candidate_window") as candidates,
+        ):
+            self.assertFalse(app.is_ime_composing())
+
+        candidates.assert_not_called()
+
+    def test_worker_refreshes_default_ime_status_cache(self):
+        pid = app.wintypes.DWORD(1234)
+        with (
+            mock.patch.object(app, "foreground_window_info", return_value=(100, 1, pid)),
+            mock.patch.object(app, "foreground_focus_hwnds", return_value=(100,)),
+            mock.patch.object(app, "ime_is_open", return_value=False),
+            mock.patch.object(app, "default_ime_window_status", return_value=(True, 0)),
+            mock.patch.object(app, "process_name_from_pid", return_value="chatgpt.exe"),
+        ):
+            app.refresh_foreground_ime_open_cache()
+
+        self.assertEqual(app._ime_open_cache["key"], (1, 1234))
+        self.assertTrue(app._ime_open_cache["value"])
 
 
 class ConfigMigrationTests(unittest.TestCase):

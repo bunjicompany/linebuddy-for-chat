@@ -1740,6 +1740,7 @@ def is_web_input_area_active():
 
 
 _web_input_cache = {"hwnd": 0, "time": 0.0, "value": True}
+_ime_open_cache = {"key": None, "time": 0.0, "value": False}
 UIA_WORKER_INTERVAL_SECONDS = 0.25
 WEB_INPUT_CACHE_MAX_AGE_SECONDS = 0.7
 
@@ -1763,6 +1764,7 @@ def uia_worker_loop():
     empty_url_since = 0.0
     while True:
         try:
+            refresh_foreground_ime_open_cache()
             hwnd, _thread_id, _pid = foreground_window_info()
             process = foreground_process_name()
             if hwnd and process in BROWSER_PROCESSES:
@@ -1842,11 +1844,38 @@ def ime_is_native_mode(hwnd):
 
 
 def is_foreground_ime_open():
+    hwnd, thread_id, pid = foreground_window_info()
+    if not hwnd:
+        return False
     for focus_hwnd in foreground_focus_hwnds():
-        default_open_status, _conversion_mode = default_ime_window_status(focus_hwnd)
-        if ime_is_open(focus_hwnd) or default_open_status:
+        if ime_is_open(focus_hwnd):
             return True
-    return False
+    return _ime_open_cache["key"] == (int(thread_id), int(pid.value)) and _ime_open_cache["value"]
+
+
+def refresh_foreground_ime_open_cache():
+    hwnd, thread_id, pid = foreground_window_info()
+    if not hwnd:
+        _ime_open_cache.update({"key": None, "time": time.monotonic(), "value": False})
+        return
+
+    key = (int(thread_id), int(pid.value))
+    open_status = False
+    for focus_hwnd in foreground_focus_hwnds():
+        if ime_is_open(focus_hwnd):
+            open_status = True
+            break
+    if not open_status:
+        for focus_hwnd in foreground_focus_hwnds():
+            default_open_status, _conversion_mode = default_ime_window_status(focus_hwnd)
+            if default_open_status:
+                open_status = True
+                break
+
+    changed = _ime_open_cache["key"] != key or _ime_open_cache["value"] != open_status
+    _ime_open_cache.update({"key": key, "time": time.monotonic(), "value": open_status})
+    if changed:
+        debug_log(f"ime cache updated process={process_name_from_pid(pid)!r} open={open_status}")
 
 
 def is_foreground_ime_native_mode():
@@ -1903,14 +1932,14 @@ def cached_has_ime_candidate_window(thread_id, pid_value):
 
 
 def is_ime_composing():
-    hwnd, thread_id, pid = foreground_window_info()
-    if not hwnd or not thread_id:
+    hwnd, _thread_id, _pid = foreground_window_info()
+    if not hwnd:
         return False
     for focus_hwnd in foreground_focus_hwnds():
         if ime_has_composition(focus_hwnd):
             debug_log(f"ime composition hwnd={int(focus_hwnd)} class={window_class_name(focus_hwnd)!r}")
             return True
-    return cached_has_ime_candidate_window(thread_id, pid.value)
+    return False
 
 
 
@@ -1949,18 +1978,29 @@ OWN_WINDOW_CLASS_PREFIX = "ItsumonoKaigyo"
 
 
 def detect_target(use_cached_browser_url=False):
-    hwnd, _thread_id, _pid = foreground_window_info()
+    hwnd, _thread_id, pid = foreground_window_info()
     if window_class_name(hwnd).startswith(OWN_WINDOW_CLASS_PREFIX):
         return None
-    process_names = process_names_for_window_tree(hwnd)
-    foreground_process = foreground_process_name()
-    process = foreground_process or next(iter(process_names), "")
+    foreground_process = process_name_from_pid(pid)
+    process_names = {foreground_process} if foreground_process else set()
+    process = foreground_process
+
+    # The foreground process is sufficient for the normal App targets.  Walking
+    # every child window here can stall the low-level keyboard hook in Electron.
+    for target in TARGETS:
+        if target.surface != "Web" and processes_match(process_names, target):
+            return target
+
     title = foreground_title()
     browser_url = ""
     if foreground_process in BROWSER_PROCESSES:
         browser_url = browser_cached_url() if use_cached_browser_url else browser_current_url()
         if use_cached_browser_url and not browser_url:
             debug_log(f"browser cached url unavailable process={foreground_process}")
+
+    if foreground_process not in BROWSER_PROCESSES:
+        process_names = process_names_for_window_tree(hwnd)
+
     for target in TARGETS:
         if target.surface == "Web":
             title_matched = keywords_match(title, target.window_title_keywords, target.window_title_keywords_regex)
@@ -2277,12 +2317,12 @@ class KeyboardHook:
         if target.surface == "Web" and not is_web_input_area_active_cached():
             debug_log(f"enter skip: web non-input target={target.label}")
             return False
-        if is_ime_composing():
-            debug_log(f"enter skip: ime composing target={target.label}")
-            return False
         if is_foreground_ime_open() and self._has_recent_ime_input():
             self.last_ime_input_time = 0.0
             debug_log(f"enter skip: ime open recent input target={target.label}")
+            return False
+        if is_ime_composing():
+            debug_log(f"enter skip: ime composing target={target.label}")
             return False
         process_name = foreground_process_name()
         wrap = process_name in set(process_name_list(config.get("shift_enter_wrap_processes", [])))
